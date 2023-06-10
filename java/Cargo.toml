@@ -1,0 +1,23 @@
+[package]
+    name = 'java'
+    version = '0.1.0'
+    edition = '2021'
+
+[[bin]]
+    name = 'java'
+    path = 'src/main.rs'
+
+[[bin]]
+    name = 'javaw'
+    path = 'src/mainw.rs'
+
+[[bin]]
+    name = 'javap'
+    path = 'src/mainp.rs'
+
+[[bin]]
+    name = 'javac'
+    path = 'src/mainc.rs'
+
+
+[dependencies]
