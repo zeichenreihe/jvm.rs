@@ -4,6 +4,6 @@
     edition = '2021'
 
 [workspace]
-    members = [ 'jvm', 'java' ]
+    members = [ 'jvm', 'jvm/gen', 'java' ]
 
 [dependencies]
