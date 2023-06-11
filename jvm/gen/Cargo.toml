@@ -8,3 +8,4 @@
 
 [dependencies]
     syn = '2.0.18'
+    quote = '1.0.28'

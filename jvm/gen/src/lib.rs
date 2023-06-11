@@ -1,6 +1,7 @@
 use proc_macro::TokenStream;
 
-use syn::{braced, Expr, Ident, parse_macro_input, Result, token, Token};
+use quote::quote;
+use syn::{braced, bracketed, Expr, Ident, parse_macro_input, Result, token, Token};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 
@@ -12,46 +13,67 @@ struct Typed {
 
 impl Parse for Typed {
 	fn parse( input: ParseStream ) -> Result<Self> {
-		Ok( Typed {
-			typ: input.parse()?,
-			name: input.parse()?,
-			squares: input.parse()?,
-		})
+		let mut typ: Ident = input.parse()?;
+		typ = Ident::new(
+			match typ.to_string().as_str() {
+				"u1" => "u8",
+				"u2" => "u16",
+				"u4" => "u32",
+				i => i,
+			},
+			typ.span()
+		);
+		let name = input.parse()?;
+
+		let squares = if input.peek( token::Bracket ) {
+			let content;
+			bracketed!( content in input );
+			content.call( Expr::parse ).map_or( None, |x| Some(x) )
+		} else {
+			None
+		};
+
+		Ok( Typed { typ, name, squares } )
 	}
 }
 
 struct Decl {
 	name: Ident,
-	brace_token: token::Brace,
 	fields: Punctuated<Typed, Token![;]>,
 }
 
 impl Parse for Decl {
 	fn parse( input: ParseStream ) -> Result<Self> {
+		let name = input.parse()?;
 		let content;
-		Ok( Decl {
-			name: input.parse()?,
-			brace_token: braced!( content in input ),
-			fields: content.parse_terminated( Typed::parse, Token![;] )?,
-		})
+		braced!( content in input );
+		let fields = content.parse_terminated( Typed::parse, Token![;] )?;
+
+		Ok( Decl { name, fields } )
 	}
 }
 
 #[proc_macro]
-pub fn gen_from_structure( tokens: TokenStream ) -> TokenStream {
+pub fn declare_jvm_struct(tokens: TokenStream ) -> TokenStream {
 	let input = parse_macro_input!( tokens as Decl );
-	let mut code = String::from("struct ");
 
-	code += &input.name.to_string();
-	code += "{\n";
+	let name = input.name;
+
+	let mut fields = Vec::new();
 	for field in input.fields {
-		code += "pub ";
-		code += &field.name.to_string();
-		code += ": ";
-		code += &field.typ.to_string();
-		code += ",\n";
+		let typ = field.typ;
+		let name = field.name;
+		let squares = field.squares;
+		fields.push( quote! { pub #name: #typ, } );
 	}
-	code += "}";
 
-	code.parse().unwrap()
+	let exp = quote! {
+		#[repr(C, packed)]
+		#[derive(Debug, AsBytes, FromBytes)]
+		struct #name {
+			#( #fields )*
+		}
+	};
+
+	exp.into()
 }
