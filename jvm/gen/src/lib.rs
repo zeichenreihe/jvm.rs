@@ -1,20 +1,25 @@
 use proc_macro::TokenStream;
-use syn::{braced, parse_macro_input, token, Field, Ident, Result, Token};
+
+use syn::{braced, Expr, Ident, parse_macro_input, Result, token, Token};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 
 struct Typed {
-
-
+	typ: Ident,
+	name: Ident,
+	squares: Option<Expr>
 }
 
 impl Parse for Typed {
 	fn parse( input: ParseStream ) -> Result<Self> {
-
+		Ok( Typed {
+			typ: input.parse()?,
+			name: input.parse()?,
+			squares: input.parse()?,
+		})
 	}
 }
 
-#[derive(Debug)]
 struct Decl {
 	name: Ident,
 	brace_token: token::Brace,
@@ -35,7 +40,18 @@ impl Parse for Decl {
 #[proc_macro]
 pub fn gen_from_structure( tokens: TokenStream ) -> TokenStream {
 	let input = parse_macro_input!( tokens as Decl );
-	let mut code = vec![ Token![struct] ];
+	let mut code = String::from("struct ");
 
-	TokenStream::from( vec![] )
+	code += &input.name.to_string();
+	code += "{\n";
+	for field in input.fields {
+		code += "pub ";
+		code += &field.name.to_string();
+		code += ": ";
+		code += &field.typ.to_string();
+		code += ",\n";
+	}
+	code += "}";
+
+	code.parse().unwrap()
 }
