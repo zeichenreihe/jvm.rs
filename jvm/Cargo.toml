@@ -7,6 +7,6 @@
     crate-type = [ 'cdylib' ]
 
 [dependencies]
-    zerocopy = '0.7.0-alpha.4'
+    #zerocopy = '0.7.0-alpha.4'
     classfile-parser = '0.3.6'
     gen = { path = 'gen' }
