@@ -1,10 +1,10 @@
 use proc_macro::TokenStream as TokenStream1;
 use quote::quote;
-use syn::{braced, bracketed, Expr, ExprLit, Ident, parenthesized, parse_macro_input, Result, token, Token};
+use syn::{Block, braced, bracketed, Expr, Ident, ItemImpl, parse_macro_input, parse_quote, Result, token, Token};
 use proc_macro2::TokenStream;
+use syn::fold::{Fold, fold_expr};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::token::{Enum, Struct};
 
 #[derive(Debug)]
 struct SpecialType(TokenStream);
@@ -45,17 +45,13 @@ impl Parse for Typed {
 }
 
 struct EnumTyped {
-	index: ExprLit,
 	name: Ident,
 	fields: Punctuated<Typed, Token![;]>,
 }
 
 impl Parse for EnumTyped {
 	fn parse(input: ParseStream) -> Result<Self> {
-		let index = input.parse()?;
-		input.parse::<Token![=]>()?;
 		Ok(EnumTyped {
-			index,
 			name: input.parse()?,
 			fields: {
 				let content;
@@ -66,38 +62,95 @@ impl Parse for EnumTyped {
 	}
 }
 
+struct ParsingImplFolder<'a>(&'a Punctuated<EnumTyped, Token![,]>);
+
+impl<'a> Fold for ParsingImplFolder<'a> {
+	fn fold_expr(&mut self, i: Expr) -> Expr {
+		match i {
+			Expr::Path(path) if path.path.segments.len() == 2 && path.path.segments[0].ident.to_string() == "Self" => {
+				let f = self.0.iter()
+					.filter(|v| v.name == path.path.segments[1].ident)
+					.next();
+				if let Some(variant) = f {
+					let name = &variant.name;
+
+					let mut fields = Vec::with_capacity(variant.fields.len());
+					let mut fields_load = Vec::with_capacity(variant.fields.len());
+
+					for field in &variant.fields {
+						let name = &field.name;
+						let typ = &field.typ.0;
+
+						fields_load.push(if let Some(squares) = &field.squares { quote! {
+							let #name = {
+								let mut vec = Vec::with_capacity((#squares) as usize);
+								for _ in 0..((#squares) as usize) {
+									vec.push(#typ::parse(reader, constant_pool)?);
+								}
+								vec
+							};
+						}} else { quote!{
+							let #name = {
+								#typ::parse(reader, constant_pool)?
+							};
+						}
+						});
+
+						fields.push(quote!{
+							#name,
+						});
+					}
+
+					return parse_quote!(
+						{
+							#( #fields_load )*
+							Self::#name { #( #fields )* }
+						}
+					);
+				} else {
+					fold_expr(self, Expr::Path(path))
+				}
+			},
+			i => fold_expr(self, i),
+		}
+	}
+}
+
 enum Declaration {
 	Struct {
 		name: Ident,
 		fields: Punctuated<Typed, Token![;]>,
-		braces: Option<Expr>,
+		braces: Option<Block>,
 	},
 	Enum {
 		name: Ident,
-		tag_type: SpecialType,
 		variants: Punctuated<EnumTyped, Token![,]>,
+		parser: Option<ItemImpl>,
 	}
 }
 
 impl Parse for Declaration {
 	fn parse(input: ParseStream) -> Result<Self> {
-		let lookahead = input.lookahead1();
-		if lookahead.peek(Enum) {
+		if input.peek(Token![enum]) {
 			input.parse::<Token![enum]>()?;
+			let name = input.parse()?;
+			let variants = {
+				let content;
+				braced!(content in input);
+				content.parse_terminated(EnumTyped::parse, Token![,])?
+			};
+			let parser = if input.peek(Token![impl]) {
+				let mut folder = ParsingImplFolder(&variants);
+				Some(folder.fold_item_impl(input.parse()?))
+			} else {
+				None
+			};
 			Ok(Self::Enum {
-				name: input.parse()?,
-				tag_type: {
-					let content;
-					parenthesized!(content in input);
-					SpecialType::parse(&content)?
-				},
-				variants: {
-					let content;
-					braced!(content in input);
-					content.parse_terminated(EnumTyped::parse, Token![,])?
-				},
+				name,
+				variants,
+				parser,
 			})
-		} else if lookahead.peek(Struct) {
+		} else if input.peek(Token![struct]) {
 			input.parse::<Token![struct]>()?;
 			Ok(Self::Struct {
 				name: input.parse()?,
@@ -107,15 +160,13 @@ impl Parse for Declaration {
 					content.parse_terminated( Typed::parse, Token![;])?
 				},
 				braces: if input.peek(token::Brace) {
-					let content;
-					braced!(content in input);
-					Some(content.call(Expr::parse)?)
+					Some(input.parse()?)
 				} else {
 					None
 				},
 			})
 		} else {
-			Err(lookahead.error())?
+			Err(input.error("expected `struct` or `enum`."))?
 		}
 	}
 }
@@ -123,116 +174,25 @@ impl Parse for Declaration {
 #[proc_macro]
 pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 	let input = parse_macro_input!( tokens as Declaration );
+
 	match input {
-		Declaration::Struct { name, fields, braces} => {
-			let mut field_declarations = Vec::with_capacity(fields.len());
-			let mut load = Vec::with_capacity(fields.len());
-			let mut load_struct = Vec::with_capacity(fields.len());
-			for field in fields {
-				let typ = field.typ.0;
-				let name = field.name;
-
-				field_declarations.push( if field.squares.is_some() { quote! {
-					pub #name: Vec<#typ>,
-				}} else { quote!{
-					pub #name: #typ,
-				}});
-
-				load.push(if let Some(squares) = field.squares { quote!{
-					let #name = {
-						let mut vec = Vec::with_capacity((#squares) as usize);
-						for _ in 0..((#squares) as usize) {
-							vec.push(#typ::load(reader)?);
-						}
-						vec
-					};
-				}} else { quote!{
-					let #name = #typ::load(reader)?;
-				}});
-
-				load_struct.push(quote!{
-					#name,
-				})
-			}
-
-			let implementation = if let Some(braces) = braces { quote! {
-				#braces
-			} } else { quote!{
-				#( #load )*
-				Ok(Self {
-					#( #load_struct )*
-				})
-			}};
-
-			let exp = quote!{
-				#[derive(Debug)]
-				pub struct #name {
-					#( #field_declarations )*
-				}
-
-				impl Load for #name {
-					fn load<R: Read>(reader: &mut R) -> Result<#name, Error> {
-						#implementation
-					}
-				}
-			};
-
-			exp.into()
-		},
-		Declaration::Enum {
-			name,
-			tag_type: SpecialType(tag_type),
-			variants
-		} => {
+		Declaration::Enum { name, variants, parser } => {
 			let mut variants_out = Vec::with_capacity(variants.len());
-			let mut variants_match = Vec::with_capacity(variants.len());
-
 			for variant in variants {
 				let name = variant.name;
-				let index = variant.index;
-
-				let mut field_declarations = Vec::with_capacity(variant.fields.len());
-				let mut field_load = Vec::with_capacity(variant.fields.len());
-				let mut field_load_struct = Vec::with_capacity(variant.fields.len());
-
+				let mut fields = Vec::with_capacity(variant.fields.len());
 				for field in variant.fields {
-					let typ = field.typ.0;
 					let name = field.name;
-
-					field_declarations.push(if field.squares.is_some() { quote! {
+					let typ = field.typ.0;
+					fields.push(if field.squares.is_some() { quote!{
 						#name: Vec<#typ>,
-					}} else { quote! {
+					}} else { quote!{
 						#name: #typ,
 					}});
-
-					field_load.push(if let Some(squares) = field.squares { quote!{
-						let #name = {
-							let mut vec = Vec::with_capacity((#squares) as usize);
-							for _ in 0..((#squares) as usize) {
-								vec.push(#typ::load(reader)?);
-							}
-							vec
-						};
-					}} else { quote! {
-						let #name = #typ::load(reader)?;
-					}});
-
-					field_load_struct.push(quote!{
-						#name,
-					});
 				}
 
-				variants_out.push( quote!{
-					#name { #( #field_declarations )* },
-				});
-
-				variants_match.push(quote!{
-					#index => {
-						#( #field_load )*
-						Ok( Self::#name {
-							#( #field_load_struct )*
-						})
-					},
+				variants_out.push(quote!{
+					#name { #( #fields )* },
 				});
 			}
 
@@ -241,19 +201,71 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 				pub enum #name {
 					#( #variants_out )*
 				}
-				impl Load for #name {
-					fn load<R: Read>(reader: &mut R) -> Result<#name, Error> {
-						let tag = #tag_type::load(reader)?;
 
-						match tag {
-							#( #variants_match )*
-							_ => Err(Error::ReadWrongTag { actual: tag as u32, string: stringify!(tag: #tag_type) })
+				#parser
+			};
+			exp.into()
+		},
+		Declaration::Struct { name, fields, braces, } => {
+			let braces = braces.map_or_else(|| Vec::new(), |b| b.stmts);
+
+			let mut fields_out = Vec::with_capacity(fields.len());
+			let mut parse_out = Vec::with_capacity(fields.len());
+			let mut parse_out_struct = Vec::with_capacity(fields.len());
+
+			let mut has_seen_constant_pool_field = false;
+			for field in fields {
+				let constant_pool = if has_seen_constant_pool_field && name == "ClassFile" { quote!{
+					Some(&constant_pool)
+				}} else { quote!{
+					constant_pool
+				}};
+
+				let name = field.name;
+				let typ = field.typ.0;
+
+				has_seen_constant_pool_field |= name == "constant_pool";
+
+				fields_out.push(if field.squares.is_some() { quote!{
+					#name: Vec<#typ>,
+				}} else { quote!{
+					#name: #typ,
+				}});
+
+				parse_out.push(if let Some(squares) = field.squares { quote!{
+					let #name = {
+						let mut vec = Vec::with_capacity((#squares) as usize);
+						for _ in 0..((#squares) as usize) {
+							vec.push(#typ::parse(reader, #constant_pool)?);
 						}
+						vec
+					};
+				}} else { quote!{
+					let #name = {
+						#typ::parse(reader, #constant_pool)?
+					};
+				}});
+
+				parse_out_struct.push(quote!{
+					#name,
+				})
+			}
+
+			let exp = quote! {
+				#[derive(Debug)]
+				pub struct #name {
+					#( #fields_out )*
+				}
+
+				impl<R: Read> Parse<R> for #name {
+					fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, Error> {
+						#( #braces )*
+						#( #parse_out )*
+						Ok( Self { #( #parse_out_struct )* } )
 					}
 				}
 			};
-
 			exp.into()
-		},
+		}
 	}
 }
