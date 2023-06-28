@@ -72,80 +72,215 @@ impl_parse_for!(u8, 1);
 impl_parse_for!(u16, 2);
 impl_parse_for!(u32, 4);
 
-declare_jvm_struct!( // 4.4, Table 4.3
-	enum CpInfo {
-		Class {
-    		u2 name_index;
-		},
-		FieldRef {
-			u2 class_index;
-			u2 name_and_type_index;
-		},
-		MethodRef {
-			u2 class_index;
-			u2 name_and_type_index;
-		},
-		InterfaceMethodRef {
-			u2 class_index;
-			u2 name_and_type_index;
-		},
-		String {
-			u2 string_index;
-		},
-		Integer {
-			u4 bytes;
-		},
-		Float {
-			u4 bytes;
-		},
-		Long {
-			u4 high_bytes;
-			u4 low_bytes;
-		},
-		Double {
-			u4 high_bytes;
-			u4 low_bytes;
-		},
-		NameAndType {
-			u2 name_index;
-			u2 descriptor_index;
-		},
-		Utf8 {
-			u2 length;
-			u1 bytes[length];
-		},
-		MethodHandle {
-			u1 reference_kind;
-			u2 reference_index;
-		},
-		InvokeDynamic {
-			u2 bootstrap_method_attr_index;
-			u2 name_and_type_index;
-		},
-	}
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub struct JUtf8(pub Vec<u8>);
 
-	impl<R: Read> Parse<R> for CpInfo {
-		fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, Error> {
-			let tag: u8 = u8::parse(reader, constant_pool)?;
-			match tag {
-				7  => Ok(Self::Class),
-				9  => Ok(Self::FieldRef),
-				10 => Ok(Self::MethodRef),
-				11 => Ok(Self::InterfaceMethodRef),
-				8  => Ok(Self::String),
-				3  => Ok(Self::Integer),
-				4  => Ok(Self::Float),
-				5  => Ok(Self::Long),
-				6  => Ok(Self::Double),
-				12 => Ok(Self::NameAndType),
-				1  => Ok(Self::Utf8),
-				15 => Ok(Self::MethodHandle),
-				18 => Ok(Self::InvokeDynamic),
-				_ => Err(Error::InvalidConstantPoolTag(tag)),
-			}
-		}
+impl Debug for JUtf8 {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "Utf8 {{ \"{}\" }}", String::from_utf8_lossy(&self.0))
+	}
+}
+
+impl From<Vec<u8>> for JUtf8 {
+	fn from(value: Vec<u8>) -> Self {
+		Self(value)
+	}
+}
+
+impl From<&str> for JUtf8 {
+	fn from(value: &str) -> Self {
+		Self ( value.as_bytes().into() )
+	}
+}
+
+impl JUtf8 {
+	pub fn to_vec(&self) -> Vec<u8> {
+		self.0.clone()
+	}
+}
+
+impl PartialEq<str> for JUtf8 {
+	fn eq(&self, other: &str) -> bool {
+		self.0.eq(other.as_bytes())
+	}
+}
+impl PartialEq<&str> for JUtf8 {
+	fn eq(&self, other: &&str) -> bool {
+		self.0.eq(other.as_bytes())
+	}
+}
+
+declare_jvm_struct!(
+	struct CpInfoClass {
+		u2 name_index;
 	}
 );
+impl CpInfoClass {
+	pub fn name<'a>(&'a self, class_file: &'a ClassFile) -> Result<JUtf8, Error> {
+		if let CpInfo::Utf8(utf8) = class_file.get_constant_pool(self.name_index as usize)? {
+			Ok(JUtf8(utf8.bytes.clone()))
+		} else {
+			Err(Error::WrongConstantPoolTag)
+		}
+	}
+}
+declare_jvm_struct!(
+	struct CpInfoFieldRef {
+		u2 class_index;
+		u2 name_and_type_index;
+	}
+);
+impl CpInfoFieldRef {
+	pub fn class_name_descriptor<'a>(&'a self, class_file: &'a ClassFile) -> Result<(JUtf8, JUtf8, JUtf8), Error> {
+		let class = if let CpInfo::Class(class) = class_file.get_constant_pool(self.class_index as usize)? {
+			class.name(class_file)?
+		} else {
+			Err(Error::WrongConstantPoolTag)?
+		};
+
+		let (name, desc) = if let CpInfo::NameAndType(name_and_type) = class_file.get_constant_pool(self.name_and_type_index as usize)? {
+			name_and_type.name_descriptor(class_file)?
+		} else {
+			Err(Error::WrongConstantPoolTag)?
+		};
+
+		Ok((class.clone(), name.clone(), desc.clone()))
+	}
+}
+declare_jvm_struct!(
+	struct CpInfoMethodRef {
+		u2 class_index;
+		u2 name_and_type_index;
+	}
+);
+impl CpInfoMethodRef {
+	pub fn class_name_descriptor<'a>(&'a self, class_file: &'a ClassFile) -> Result<(JUtf8, JUtf8, JUtf8), Error> {
+		let class = if let CpInfo::Class(class) = class_file.get_constant_pool(self.class_index as usize)? {
+			class.name(class_file)?
+		} else {
+			Err(Error::WrongConstantPoolTag)?
+		};
+
+		let (name, descriptor) = if let CpInfo::NameAndType(name_and_type) = class_file.get_constant_pool(self.name_and_type_index as usize)? {
+			name_and_type.name_descriptor(class_file)?
+		} else {
+			Err(Error::WrongConstantPoolTag)?
+		};
+
+		Ok((class.clone(), name, descriptor))
+	}
+}
+declare_jvm_struct!(
+	struct CpInfoInterfaceMethodRef {
+		u2 class_index;
+		u2 name_and_type_index;
+	}
+);
+declare_jvm_struct!(
+	struct CpInfoString {
+		u2 string_index;
+	}
+);
+declare_jvm_struct!(
+	struct CpInfoInteger {
+		u4 bytes;
+	}
+);
+declare_jvm_struct!(
+	struct CpInfoFloat {
+		u4 bytes;
+	}
+);
+declare_jvm_struct!(
+	struct CpInfoLong {
+		u4 high_bytes;
+		u4 low_bytes;
+	}
+);
+declare_jvm_struct!(
+	struct CpInfoDouble {
+		u4 high_bytes;
+		u4 low_bytes;
+	}
+);
+declare_jvm_struct!(
+	struct CpInfoNameAndType {
+		u2 name_index;
+		u2 descriptor_index;
+	}
+);
+impl CpInfoNameAndType {
+	pub fn name_descriptor<'a>(&'a self, class_file: &'a ClassFile) -> Result<(JUtf8, JUtf8), Error> {
+		let name: JUtf8 = if let CpInfo::Utf8(utf8) = class_file.get_constant_pool(self.name_index as usize)? {
+			JUtf8(utf8.bytes.clone())
+		} else {
+			Err(Error::WrongConstantPoolTag)?
+		};
+
+		let descriptor: JUtf8 = if let CpInfo::Utf8(utf8) = class_file.get_constant_pool(self.descriptor_index as usize)? {
+			JUtf8(utf8.bytes.clone())
+		} else {
+			Err(Error::WrongConstantPoolTag)?
+		};
+
+		Ok((name.clone(), descriptor.clone()))
+	}
+}
+declare_jvm_struct!(
+	struct CpInfoUtf8 {
+		u2 length;
+		u1 bytes[length];
+	}
+);
+declare_jvm_struct!(
+	struct CpInfoMethodHandle {
+		u1 reference_kind;
+		u2 reference_index;
+	}
+);
+declare_jvm_struct!(
+	struct CpInfoInvokeDynamic {
+		u2 bootstrap_method_attr_index;
+		u2 name_and_type_index;
+	}
+);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CpInfo { // 4.4, Table 4.3
+	Class(CpInfoClass), FieldRef(CpInfoFieldRef), MethodRef(CpInfoMethodRef), InterfaceMethodRef(CpInfoInterfaceMethodRef),
+	String(CpInfoString), Integer(CpInfoInteger), Float(CpInfoFloat), Long(CpInfoLong), Double(CpInfoDouble),
+	NameAndType(CpInfoNameAndType), Utf8(CpInfoUtf8), MethodHandle(CpInfoMethodHandle), InvokeDynamic(CpInfoInvokeDynamic),
+}
+impl<R: Read> Parse<R> for CpInfo {
+	fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, Error> {
+		let tag: u8 = u8::parse(reader, constant_pool)?;
+		match tag {
+			7  => Ok(Self::Class(CpInfoClass::parse(reader, constant_pool)?)),
+			9  => Ok(Self::FieldRef(CpInfoFieldRef::parse(reader, constant_pool)?)),
+			10 => Ok(Self::MethodRef(CpInfoMethodRef::parse(reader, constant_pool)?)),
+			11 => Ok(Self::InterfaceMethodRef(CpInfoInterfaceMethodRef::parse(reader, constant_pool)?)),
+			8  => Ok(Self::String(CpInfoString::parse(reader, constant_pool)?)),
+			3  => Ok(Self::Integer(CpInfoInteger::parse(reader, constant_pool)?)),
+			4  => Ok(Self::Float(CpInfoFloat::parse(reader, constant_pool)?)),
+			5  => Ok(Self::Long(CpInfoLong::parse(reader, constant_pool)?)),
+			6  => Ok(Self::Double(CpInfoDouble::parse(reader, constant_pool)?)),
+			12 => Ok(Self::NameAndType(CpInfoNameAndType::parse(reader, constant_pool)?)),
+			1  => Ok(Self::Utf8(CpInfoUtf8::parse(reader, constant_pool)?)),
+			15 => Ok(Self::MethodHandle(CpInfoMethodHandle::parse(reader, constant_pool)?)),
+			18 => Ok(Self::InvokeDynamic(CpInfoInvokeDynamic::parse(reader, constant_pool)?)),
+			_ => Err(Error::InvalidConstantPoolTag(tag)),
+		}
+	}
+}
+impl CpInfo {
+	pub fn as_jutf8(&self) -> Result<JUtf8, Error> {
+		if let Self::Utf8(utf8) = self {
+			Ok(JUtf8(utf8.bytes.clone()))
+		} else {
+			Err(Error::InvalidConstantPoolTag(255))
+		}
+	}
+}
 
 declare_jvm_struct!( // 4.5
 	struct FieldInfo {
@@ -305,7 +440,7 @@ impl<R: Read> Parse<R> for AttributeInfo {
 				address: attribute_name_index,
 			})?;
 
-		let s = if let CpInfo::Utf8 { length: _, bytes } = attribute_name {
+		let s = if let CpInfo::Utf8(CpInfoUtf8 { bytes, ..}) = attribute_name {
 			std::str::from_utf8(bytes)?
 		} else {
 			Err(Error::NoUtf8AtAddress(attribute_name_index))?
@@ -335,7 +470,8 @@ impl<R: Read> Parse<R> for AttributeInfo {
 				Self::LineNumberTable {
 					line_number_table_length, line_number_table
 				}
-			}
+			},
+			(0, "Deprecated") => Self::Deprecated {},
 			_ => Self::Unknown {
 				attribute_name_index, attribute_length,
 				info: {
@@ -360,6 +496,26 @@ declare_jvm_struct!( // 4.6
 	    AttributeInfo  attributes[attributes_count];
 	}
 );
+
+impl MethodInfo {
+	pub fn get_code(&self) -> Result<&AttributeInfo, Error> {
+		for attribute in &self.attributes {
+			match attribute {
+				AttributeInfo::Code {..} => return Ok(attribute),
+				_ => (),
+			}
+		}
+		Err(Error::NoCodeAttribute)
+	}
+
+	pub fn name<'a>(&'a self, class_file: &'a ClassFile) -> Result<JUtf8, Error> {
+		if let CpInfo::Utf8(utf8) = class_file.get_constant_pool(self.name_index as usize)? {
+			Ok(JUtf8(utf8.bytes.clone()))
+		} else {
+			Err(Error::WrongConstantPoolTag)
+		}
+	}
+}
 
 declare_jvm_struct!( // 4.1
 	struct ClassFile {
@@ -397,6 +553,14 @@ impl ClassFile {
 	pub fn verify(&self) -> Result<(), Error> {
 		Ok(())
 	}
+
+	pub fn name(&self) -> Result<JUtf8, Error> {
+		if let CpInfo::Class(class) = self.get_constant_pool(self.this_class as usize)? {
+			class.name(self)
+		} else {
+			Err(Error::WrongConstantPoolTag)
+		}
+	}
 }
 
 #[cfg(test)]
@@ -411,6 +575,23 @@ mod testing {
 		let classfile = ClassFile::parse(&mut &bytes[..], None).unwrap();
 		classfile.verify().unwrap();
 
-		println!("{:?}", classfile);
+		println!("{:#?}", classfile);
+
+		for method in classfile.methods {
+			println!("method: {:#?}", method.get_code());
+		}
+	}
+
+	#[test]
+	#[cfg(target_os = "linux")]
+	fn try_parse_classfile_from_zip() {
+		let rt = File::open("/usr/lib/jvm/java-8-openjdk/jre/lib/rt.jar").unwrap();
+		let mut rt = ZipArchive::new(BufReader::new(rt)).unwrap();
+
+		let mut class_file = rt.by_name("java/lang/Object.class").unwrap();
+		let classfile = ClassFile::parse(&mut class_file, None).unwrap();
+
+		println!("{classfile:#?}");
+
 	}
 }
