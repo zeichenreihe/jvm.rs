@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Display, Formatter, write};
 use std::io::Read;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
@@ -17,6 +18,8 @@ pub enum Error {
 	InvalidConstantPoolAddress { address: u16 },
 	InvalidConstantPoolTag ( u8 ),
 	NoUtf8AtAddress ( u16 ),
+	NoCodeAttribute,
+	WrongConstantPoolTag,
 }
 
 impl From<std::io::Error> for Error {
