@@ -197,7 +197,7 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 			}
 
 			let exp = quote!{
-				#[derive(Debug)]
+				#[derive(Debug, Clone, PartialEq, Eq)]
 				pub enum #name {
 					#( #variants_out )*
 				}
@@ -227,9 +227,9 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 				has_seen_constant_pool_field |= name == "constant_pool";
 
 				fields_out.push(if field.squares.is_some() { quote!{
-					#name: Vec<#typ>,
+					pub #name: Vec<#typ>,
 				}} else { quote!{
-					#name: #typ,
+					pub #name: #typ,
 				}});
 
 				parse_out.push(if let Some(squares) = field.squares { quote!{
@@ -252,7 +252,7 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 			}
 
 			let exp = quote! {
-				#[derive(Debug)]
+				#[derive(Debug, Clone, PartialEq, Eq)]
 				pub struct #name {
 					#( #fields_out )*
 				}

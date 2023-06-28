@@ -6,7 +6,7 @@ use gen::declare_jvm_struct;
 
 #[derive(Debug)]
 #[allow(unused)]
-enum Error {
+pub enum Error {
 	ReadWrongAmountOfDataStr { actual: usize, expected: usize, string: &'static str },
 	ReadWrongAmountOfData { actual: usize, expected: usize },
 	ReadWrongTag { actual: u32, string: &'static str },
@@ -37,11 +37,11 @@ impl From<Utf8Error> for Error {
 	}
 }
 
-trait Parse<R: Read> {
+pub trait Parse<R: Read> {
 	fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, Error> where Self:Sized;
 }
 
-trait ParseMulti<R: Read, T: Parse<R>> {
+pub trait ParseMulti<R: Read, T: Parse<R>> {
 	fn parse_multi(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>, count: usize) -> Result<Vec<T>, Error>;
 }
 
@@ -210,11 +210,11 @@ declare_jvm_struct!( // 4.7.21
 	}
 );
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StackMapFrame(); // TODO: fill
 
 //#[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttributeInfo { // 4.7
 	ConstantValue { // 1.0.2, 45.3
 		constantvalue_index: u16,
@@ -389,18 +389,21 @@ declare_jvm_struct!( // 4.1
 );
 
 impl ClassFile {
-	fn get_constant_pool(&self, constant_pool_address: usize) -> Result<&CpInfo, Error> {
+	pub fn get_constant_pool(&self, constant_pool_address: usize) -> Result<&CpInfo, Error> {
 		self.constant_pool.get(constant_pool_address - 1)
 			.ok_or(Error::InvalidConstantPoolAddress { address: constant_pool_address as u16 - 1 })
 	}
 
-	fn verify(&self) -> Result<(), Error> {
+	pub fn verify(&self) -> Result<(), Error> {
 		Ok(())
 	}
 }
 
 #[cfg(test)]
 mod testing {
+	use std::fs::File;
+	use std::io::BufReader;
+	use zip::ZipArchive;
 	use super::{ClassFile, Parse};
 	#[test]
 	fn try_parse_classfile() {
