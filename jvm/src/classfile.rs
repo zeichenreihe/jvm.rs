@@ -230,12 +230,23 @@ impl CpInfoNameAndType {
 		Ok((name.clone(), descriptor.clone()))
 	}
 }
-declare_jvm_struct!(
-	struct CpInfoUtf8 {
-		u2 length;
-		u1 bytes[length];
+#[derive(Clone, PartialEq, Eq)]
+pub struct CpInfoUtf8 {
+	length: u16,
+	bytes: Vec<u8>, // [length]
+}
+impl<R: Read> Parse<R> for CpInfoUtf8 {
+	fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, Error> where Self: Sized {
+		let length = u16::parse(reader, constant_pool)?;
+		let bytes = Vec::parse_multi(reader, constant_pool, length as usize)?;
+		Ok(Self { length, bytes })
 	}
-);
+}
+impl Debug for CpInfoUtf8 {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "CpInfoUtf8 {{ length: {}, bytes: \"{}\" }}", self.length, String::from_utf8_lossy(&self.bytes))
+	}
+}
 declare_jvm_struct!(
 	struct CpInfoMethodHandle {
 		u1 reference_kind;
