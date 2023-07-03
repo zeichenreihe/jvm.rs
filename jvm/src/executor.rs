@@ -5,6 +5,7 @@ use std::mem::{size_of, size_of_val};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use crate::classfile::{ClassFile, CpInfo, JUtf8, Parse};
+use crate::errors;
 use crate::executor::Error::WrongConstantPoolTag;
 use crate::opcodes::Opcode;
 
@@ -99,10 +100,6 @@ impl Vm {
 
 	fn get_class(&self, name: &JUtf8) -> Result<&ClassFile, Error> {
 		self.classes.get(name).ok_or_else(|| Error::NoClassDefFound(name.to_owned()))
-	}
-
-	fn start_at_current_frame(&mut self) -> Result<(), Error> {
-		self.stack.frames.last_mut().ok_or(Error::OverflowErr)?.run_isn()
 	}
 }
 
@@ -289,11 +286,17 @@ impl VmStackFrame {
 
 #[cfg(test)]
 mod testing {
+	use std::any::Any;
+	use std::cmp::Ordering;
 	use std::fs::File;
+	use std::hint::black_box;
 	use std::io::BufReader;
+	use std::sync::atomic::AtomicUsize;
+	use std::sync::atomic::Ordering::Relaxed;
+	use inkwell::module::Linkage;
 	use zip::ZipArchive;
-	use crate::classfile::{AttributeInfo, ClassFile, CpInfo, JUtf8, Parse};
-	use crate::executor::Vm;
+	use crate::classfile::{AttributeInfo, ClassFile, CodeAttribute, CpInfo, JUtf8, Parse};
+	use crate::executor::{ClassInstance, Vm};
 	use super::VmStackFrame;
 
 	#[test]
@@ -303,12 +306,15 @@ mod testing {
 		let classfile = ClassFile::parse(&mut &bytes[..], None).unwrap();
 		classfile.verify().unwrap();
 
-		println!("{:#?}", classfile);
+		assert_eq!(classfile.constant_pool.len(), classfile.constant_pool_count as usize - 1);
+		assert_eq!(classfile.attributes.len(), classfile.attributes_count as usize);
+		assert_eq!(classfile.methods.len(), classfile.methods_count as usize);
+		assert_eq!(classfile.fields.len(), classfile.fields_count as usize);
 
 		let method = classfile.methods.get(1).unwrap();
 		let code = method.get_code().unwrap();
 
-		if let AttributeInfo::Code {
+		if let AttributeInfo::Code(CodeAttribute {
 			max_stack,
 			max_locals,
 			code_length,
@@ -316,8 +322,9 @@ mod testing {
 			exception_table_length,
 			exception_table,
 			attributes_count,
-			attributes
-		} = code {
+			attributes,
+			..
+		}) = code {
 			let mut frame = VmStackFrame {
 				program_counter: 0,
 				stack_pointer: 0,
@@ -335,9 +342,9 @@ mod testing {
 				class: classfile.clone(),
 			};
 
-			println!("{}", frame);
-			frame.run_isn().unwrap();
-			println!("{}", frame);
+			//println!("{}", frame);
+			//frame.run_isn().unwrap();
+			//println!("{}", frame);
 		}
 	}
 
@@ -362,7 +369,8 @@ mod testing {
 
 		let code = main.get_code().unwrap();
 
-		if let AttributeInfo::Code {
+		if let AttributeInfo::Code(CodeAttribute {
+			attribute_length: _,
 			max_stack,
 			max_locals,
 			code_length,
@@ -371,7 +379,7 @@ mod testing {
 			exception_table,
 			attributes_count,
 			attributes
-		} = code {
+		}) = code {
 			let frame = VmStackFrame {
 				program_counter: 0,
 				stack_pointer: 0,
@@ -392,8 +400,87 @@ mod testing {
 
 			vm.stack.frames.push(frame);
 
-			vm.start_at_current_frame().unwrap();
+			vm.stack.frames.last_mut().unwrap().run_isn().unwrap();
 		}
+	}
+
+	#[test]
+	fn test_jit() {
+		use inkwell::OptimizationLevel;
+		use inkwell::builder::Builder;
+		use inkwell::context::Context;
+		use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+		use inkwell::module::Module;
+		use std::error::Error;
+
+		static CALLS: AtomicUsize = AtomicUsize::new(0);
+		#[no_mangle]
+		pub extern "C" fn do_fun_stuff(a: u64) -> u64 {
+			CALLS.fetch_add(1, Relaxed);
+			a * 3
+		}
+
+		let context = Context::create();
+
+		{ // add functions to the jit access table
+			let name = std::ffi::CString::new("do_fun_stuff").unwrap();
+			let value = do_fun_stuff as *mut std::ffi::c_void;
+			unsafe { llvm_sys::support::LLVMAddSymbol(name.as_ptr(), value) }
+		}
+
+		let module = context.create_module("sum");
+		{
+			let i64_type = context.i64_type();
+			let fn_type = i64_type.fn_type(&[i64_type.into(), i64_type.into(), i64_type.into()], false);
+
+			let fun_fn_type = i64_type.fn_type(&[i64_type.into()], false);
+			let do_fun_stuff = module.add_function("do_fun_stuff", fun_fn_type, Some(Linkage::External));
+			{
+				let builder = context.create_builder();
+				let function = module.add_function("sum/bar foo () baz", fn_type, None);
+				let basic_block = context.append_basic_block(function, "entry");
+
+				builder.position_at_end(basic_block);
+
+				let x = function.get_nth_param(0).unwrap().into_int_value();
+				let y = function.get_nth_param(1).unwrap().into_int_value();
+				let z = function.get_nth_param(2).unwrap().into_int_value();
+
+				let x = builder.build_direct_call(do_fun_stuff, &[x.into()], "")
+					.try_as_basic_value()
+					.left().unwrap().into_int_value();
+				let y = builder.build_direct_call(do_fun_stuff, &[y.into()], "y")
+					.try_as_basic_value()
+					.left().unwrap().into_int_value();
+				let z = builder.build_direct_call(do_fun_stuff, &[z.into()], "y")
+					.try_as_basic_value()
+					.left().unwrap().into_int_value();
+
+
+				let sum = builder.build_int_mul(x, y, "mul");
+				let sum = builder.build_int_mul(sum, z, "mul");
+
+				builder.build_return(Some(&sum));
+			}
+		}
+		module.verify().unwrap();
+		let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None).unwrap();
+
+		let sum: JitFunction<unsafe extern "C" fn(u64, u64, u64) -> u64> = unsafe { execution_engine.get_function("sum/bar foo () baz") }.unwrap();
+
+		let x = 3u64;
+		let y = 2u64;
+		let z = 5u64;
+
+		let sum = unsafe { sum.call(x, y, z) };
+
+		assert_eq!(CALLS.load(Relaxed), 3);
+
+		let x = do_fun_stuff(x);
+		let y = do_fun_stuff(y);
+		let z = do_fun_stuff(z);
+
+		assert_eq!(sum, x * y * z);
 	}
 
 
