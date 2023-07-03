@@ -20,6 +20,7 @@ pub enum Error {
 	NoUtf8AtAddress ( u16 ),
 	NoCodeAttribute,
 	WrongConstantPoolTag,
+	ReadDifferentValueThanExpected(String),
 }
 
 impl From<std::io::Error> for Error {
@@ -313,6 +314,41 @@ declare_jvm_struct!( // 4.7.6
 	}
 );
 
+declare_jvm_struct!( // 4.7.7
+	struct EnclosingMethodAttribute {
+		u4 attribute_length = 4;
+		u2 class_index;
+		u2 method_index;
+	}
+);
+
+declare_jvm_struct!( // 4.7.6
+	struct SyntheticAttribute {
+		u4 attribute_length = 0;
+	}
+);
+
+declare_jvm_struct!( // 4.7.9
+	struct SignatureAttribute {
+		u4 attribute_length = 2;
+		u2 signature_index;
+	}
+);
+
+declare_jvm_struct!( // 4.7.10
+	struct SourceFileAttribute {
+		u4 attribute_length = 2;
+		u2 sourcefile_index;
+	}
+);
+
+declare_jvm_struct!( // 4.7.11
+	struct SourceDebugExtensionsAttribute {
+		u4 attribute_length;
+		u1 debug_extension[attribute_length];
+	}
+);
+
 declare_jvm_struct!( // 4.7.12
 	struct AttributeLineNumberTableInnerStruct {
 		u2 start_pc;
@@ -595,6 +631,5 @@ mod testing {
 		let classfile = ClassFile::parse(&mut class_file, None).unwrap();
 
 		println!("{classfile:#?}");
-
 	}
 }

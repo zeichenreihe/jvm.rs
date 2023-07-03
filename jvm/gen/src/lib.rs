@@ -26,21 +26,31 @@ struct Typed {
 	typ: SpecialType,
 	name: Ident,
 	squares: Option<Expr>,
+	value_to_read: Option<Expr>,
 }
 
 impl Parse for Typed {
 	fn parse(input: ParseStream) -> Result<Self> {
-		Ok(Typed {
-			typ: SpecialType::parse(input)?,
-			name: input.parse()?,
-			squares: if input.peek( token::Bracket ) {
-				let content;
-				bracketed!( content in input );
-				Some(content.call( Expr::parse )?)
-			} else {
-				None
-			},
-		})
+		let typ = SpecialType::parse(input)?;
+		let name = input.parse()?;
+		let squares = if input.peek( token::Bracket ) {
+			let content;
+			bracketed!( content in input );
+			Some(content.call( Expr::parse )?)
+		} else {
+			None
+		};
+		let value_to_read = if input.peek(Token![=]) {
+			input.parse::<Token![=]>()?;
+			Some(input.parse()?)
+		} else {
+			None
+		};
+		if squares.is_some() && value_to_read.is_some() {
+			Err(input.error("cannot use [] and = at the same time."))
+		} else {
+			Ok(Typed { typ, name, squares, value_to_read })
+		}
 	}
 }
 
@@ -206,7 +216,7 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 			};
 			exp.into()
 		},
-		Declaration::Struct { name, fields, braces, } => {
+		Declaration::Struct { name: struct_name, fields, braces, } => {
 			let braces = braces.map_or_else(|| Vec::new(), |b| b.stmts);
 
 			let mut fields_out = Vec::with_capacity(fields.len());
@@ -215,7 +225,7 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 
 			let mut has_seen_constant_pool_field = false;
 			for field in fields {
-				let constant_pool = if has_seen_constant_pool_field && name == "ClassFile" { quote!{
+				let constant_pool = if has_seen_constant_pool_field && struct_name == "ClassFile" { quote!{
 					Some(&constant_pool)
 				}} else { quote!{
 					constant_pool
@@ -240,7 +250,14 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 						}
 						vec
 					};
-				}} else { quote!{
+				}} else if let Some(value_to_read) = field.value_to_read { quote!{
+					let #name = {
+						#typ::parse(reader, #constant_pool)?
+					};
+					if #name != #value_to_read {
+						return Err(Error::ReadDifferentValueThanExpected(format!(stringify!(#struct_name #name expected #value_to_read, got {}), #name)));
+					}
+				}} else { quote! {
 					let #name = {
 						#typ::parse(reader, #constant_pool)?
 					};
@@ -253,11 +270,11 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 
 			let exp = quote! {
 				#[derive(Debug, Clone, PartialEq, Eq)]
-				pub struct #name {
+				pub struct #struct_name {
 					#( #fields_out )*
 				}
 
-				impl<R: Read> Parse<R> for #name {
+				impl<R: Read> Parse<R> for #struct_name {
 					fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, Error> {
 						#( #braces )*
 						#( #parse_out )*
