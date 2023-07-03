@@ -11,5 +11,11 @@
     #classfile-parser = '0.3.6'
     gen = { path = 'gen' }
     zip = "0.6.0"
-    #inkwell = { features = ["llvm12-0"] }
-# TODO: add it for jit!
+
+    # this will force inkwell to use prefer-static as well for llvm-sys :iea:
+    # see https://github.com/llvm/llvm-project/issues/63109 for why
+    llvm-sys = { version = "150.0.3", features = ["prefer-static"]}
+    inkwell = { git = "https://github.com/TheDan64/inkwell", version = "0.2.0", branch = "master", features = ["llvm15-0"] }
+
+
+

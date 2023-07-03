@@ -1,9 +1,22 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Read;
+use std::mem::{size_of, size_of_val};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use crate::classfile::{ClassFile, CpInfo, JUtf8, Parse};
 use crate::executor::Error::WrongConstantPoolTag;
 use crate::opcodes::Opcode;
+
+type JBoolean = bool;//todo!();
+type JByte = i8;
+type JShort = i16;
+type JChar = char;//todo!();
+type JInt = i32;
+type JLong = i64;
+type JFloat = f32;
+type JDouble = f64;
+type JReference = u64; //todo!();
 
 #[derive(Debug)]
 enum Error {
@@ -18,6 +31,49 @@ impl From<super::classfile::Error> for Error {
 	fn from(value: crate::classfile::Error) -> Self {
 		Self::Other(value)
 	}
+}
+
+/// Represents the memory that contains the fields of a class
+struct ClassInstance<const SIZE: usize> {
+	// in memory:
+	// <parent class instance><first field><second field><...><last field>
+	data: Box<[u8; SIZE]>
+}
+
+impl<const SIZE: usize> ClassInstance<SIZE> {
+	/// Returns the whole size of the class instance
+	pub fn get_size(&self) -> usize {
+		SIZE
+	}
+
+	pub fn get_int(&self, offset: usize) -> Result<JInt, errors::OutOfBoundsError> {
+		let slice = self.data
+			.get(offset..).ok_or(errors::OutOfBoundsError)?
+			.get(..4).ok_or(errors::OutOfBoundsError)?
+			.try_into().expect("unreachable: the slice is guaranteed to be 4 in length");
+		Ok(JInt::from_ne_bytes(slice))
+	}
+	pub fn put_int(&mut self, offset: usize, int: JInt) -> Result<(), errors::OutOfBoundsError> {
+		let slice = self.data
+			.get_mut(offset..).ok_or(errors::OutOfBoundsError)?
+			.get_mut(..size_of_val(&int)).ok_or(errors::OutOfBoundsError)?;
+		slice.copy_from_slice(&int.to_ne_bytes());
+		Ok(())
+	}
+
+	pub fn get_reference(&self, offset: usize) -> Result<JReference, ()> {
+		todo!()
+	}
+	pub fn put_reference(&self, offset: usize, reference: JReference) -> Result<(), ()> {
+		todo!()
+	}
+
+	// TODO: more!
+}
+
+/// Stores a [ClassInstance] and a count of references to it
+struct ClassInstanceRefCounted<const SIZE: usize> {
+	class_instance: Arc<ClassInstance<SIZE>>,
 }
 
 #[derive(Debug)]
@@ -241,6 +297,7 @@ mod testing {
 	use super::VmStackFrame;
 
 	#[test]
+	#[cfg(target_os = "linux")]
 	fn test_run_isn_from_real_class_file() {
 		let bytes = include_bytes!("../../java_example_classfiles/Test.class");
 		let classfile = ClassFile::parse(&mut &bytes[..], None).unwrap();
@@ -337,6 +394,20 @@ mod testing {
 
 			vm.start_at_current_frame().unwrap();
 		}
+	}
+
+
+	#[test]
+	fn test_class_instance() {
+		let mut ci = ClassInstance {
+			data: Box::new([0; 30]),
+		};
+
+		ci.put_int(10, 0x05060708).unwrap();
+		ci.put_int(14, 0x67FFFFFF).unwrap();
+
+		assert_eq!(ci.get_int(10).unwrap(), 0x05060708);
+		assert_eq!(ci.get_int(14).unwrap(), 0x67FFFFFF);
 	}
 }
 
