@@ -255,7 +255,7 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 						#typ::parse(reader, #constant_pool)?
 					};
 					if #name != #value_to_read {
-						return Err(Error::ReadDifferentValueThanExpected(format!(stringify!(#struct_name #name expected #value_to_read, got {}), #name)));
+						return Err(ClassFileParseError::InvalidValue(#name));
 					}
 				}} else { quote! {
 					let #name = {
@@ -275,7 +275,7 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 				}
 
 				impl<R: Read> Parse<R> for #struct_name {
-					fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, Error> {
+					fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, ClassFileParseError> {
 						#( #braces )*
 						#( #parse_out )*
 						Ok( Self { #( #parse_out_struct )* } )

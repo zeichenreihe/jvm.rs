@@ -3,10 +3,8 @@ use std::fmt::{Display, Formatter};
 use std::io::Read;
 use std::mem::{size_of, size_of_val};
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 use crate::classfile::{ClassFile, CpInfo, JUtf8, Parse};
-use crate::errors;
-use crate::executor::Error::WrongConstantPoolTag;
+use crate::errors::{ClassFileParseError, OutOfBoundsError, RuntimeError};
 use crate::opcodes::Opcode;
 
 type JBoolean = bool;//todo!();
@@ -18,21 +16,6 @@ type JLong = i64;
 type JFloat = f32;
 type JDouble = f64;
 type JReference = u64; //todo!();
-
-#[derive(Debug)]
-enum Error {
-	OverflowErr,
-	Other(super::classfile::Error),
-	WrongConstantPoolTag,
-	ClassAlreadyLoaded(JUtf8),
-	NoClassDefFound(JUtf8),
-}
-
-impl From<super::classfile::Error> for Error {
-	fn from(value: crate::classfile::Error) -> Self {
-		Self::Other(value)
-	}
-}
 
 /// Represents the memory that contains the fields of a class
 struct ClassInstance<const SIZE: usize> {
@@ -47,17 +30,17 @@ impl<const SIZE: usize> ClassInstance<SIZE> {
 		SIZE
 	}
 
-	pub fn get_int(&self, offset: usize) -> Result<JInt, errors::OutOfBoundsError> {
+	pub fn get_int(&self, offset: usize) -> Result<JInt, OutOfBoundsError> {
 		let slice = self.data
-			.get(offset..).ok_or(errors::OutOfBoundsError)?
-			.get(..4).ok_or(errors::OutOfBoundsError)?
+			.get(offset..).ok_or(OutOfBoundsError)?
+			.get(..size_of::<JInt>()).ok_or(OutOfBoundsError)?
 			.try_into().expect("unreachable: the slice is guaranteed to be 4 in length");
 		Ok(JInt::from_ne_bytes(slice))
 	}
-	pub fn put_int(&mut self, offset: usize, int: JInt) -> Result<(), errors::OutOfBoundsError> {
+	pub fn put_int(&mut self, offset: usize, int: JInt) -> Result<(), OutOfBoundsError> {
 		let slice = self.data
-			.get_mut(offset..).ok_or(errors::OutOfBoundsError)?
-			.get_mut(..size_of_val(&int)).ok_or(errors::OutOfBoundsError)?;
+			.get_mut(offset..).ok_or(OutOfBoundsError)?
+			.get_mut(..size_of::<JInt>()).ok_or(OutOfBoundsError)?;
 		slice.copy_from_slice(&int.to_ne_bytes());
 		Ok(())
 	}
@@ -88,18 +71,18 @@ impl Vm {
 		Vm { classes: HashMap::new(), stack: VmStack { frames: Vec::new() }}
 	}
 
-	fn try_add_class<R: Read>(&mut self, mut reader: R) -> Result<(), Error> {
+	fn try_add_class<R: Read>(&mut self, mut reader: R) -> Result<(), RuntimeError> {
 		let classfile = ClassFile::parse(&mut reader, None)?;
 		let name = classfile.name()?.to_owned();
 
 		match self.classes.insert(name.clone(), classfile) {
-			Some(class) => Err(Error::ClassAlreadyLoaded(class.name()?.to_owned())),
+			Some(class) => Err(RuntimeError::ClassAlreadyLoaded(class.name()?.to_owned())),
 			None => Ok(()),
 		}
 	}
 
-	fn get_class(&self, name: &JUtf8) -> Result<&ClassFile, Error> {
-		self.classes.get(name).ok_or_else(|| Error::NoClassDefFound(name.to_owned()))
+	fn get_class(&self, name: &JUtf8) -> Result<&ClassFile, RuntimeError> {
+		self.classes.get(name).ok_or_else(|| RuntimeError::NoClassDefFound(name.to_owned()))
 	}
 }
 
@@ -126,36 +109,38 @@ impl Display for VmStackFrame {
 }
 
 impl VmStackFrame {
-	fn push_stack(&mut self, value: u32) -> Result<(), Error> {
+	fn push_stack(&mut self, value: u32) -> Result<(), OutOfBoundsError> {
 		*self.operand_stack
 			.get_mut(self.stack_pointer)
-			.ok_or(Error::OverflowErr)? = value;
+			.ok_or(OutOfBoundsError)? = value;
 		self.stack_pointer += 1;
 		Ok(())
 	}
 
-	fn pop_stack(&mut self) -> Result<u32, Error> {
+	fn pop_stack(&mut self) -> Result<u32, OutOfBoundsError> {
 		self.stack_pointer -= 1;
-		self.operand_stack.get(self.stack_pointer)
-			.ok_or(Error::OverflowErr)
+		self.operand_stack
+			.get(self.stack_pointer)
+			.ok_or(OutOfBoundsError)
 			.map(|i| *i)
 	}
 
-	fn read_isn(&mut self) -> Result<u8, Error> {
-		let value = self.code.get(self.program_counter)
-			.ok_or(Error::OverflowErr)
+	fn read_isn(&mut self) -> Result<u8, OutOfBoundsError> {
+		let value = self.code
+			.get(self.program_counter)
+			.ok_or(OutOfBoundsError)
 			.map(|i| *i);
 		self.program_counter += 1;
 		value
 	}
 
-	fn read_constant_pool_two_indexes(&mut self) -> Result<usize, Error> {
+	fn read_constant_pool_two_indexes(&mut self) -> Result<usize, RuntimeError> {
 		let index_byte1 = self.read_isn()? as usize;
 		let index_byte2 = self.read_isn()? as usize;
 		Ok(index_byte1 << 8 | index_byte2)
 	}
 
-	fn run_isn(&mut self) -> Result<(), Error> {
+	fn run_isn(&mut self) -> Result<(), RuntimeError> {
 		loop {
 			let opcode = Opcode::try_from(self.read_isn()?).expect("for now good enough");
 
@@ -177,7 +162,7 @@ impl VmStackFrame {
 					let (class, name, desc) = if let CpInfo::FieldRef(field) = self.class.get_constant_pool(index)? {
 						field.class_name_descriptor(&self.class)?
 					} else {
-						Err(WrongConstantPoolTag)?
+						Err(ClassFileParseError::WrongConstantPoolTag)?
 					};
 
 					println!("{:?}, {:?}, {:?}", String::from_utf8(class.to_vec()), String::from_utf8(name.to_vec()), String::from_utf8(desc.to_vec()));
@@ -189,7 +174,7 @@ impl VmStackFrame {
 					let name = if let CpInfo::Class(class) = self.class.get_constant_pool(index)? {
 						class.name(&self.class)?
 					} else {
-						Err(WrongConstantPoolTag)?
+						Err(ClassFileParseError::WrongConstantPoolTag)?
 					};
 
 					println!("{:?}", String::from_utf8(name.to_vec()));
@@ -206,7 +191,7 @@ impl VmStackFrame {
 					let (class, name, desc) = if let CpInfo::MethodRef(method_ref) = self.class.get_constant_pool(index)? {
 						method_ref.class_name_descriptor(&self.class)?
 					} else {
-						Err(WrongConstantPoolTag)?
+						Err(ClassFileParseError::WrongConstantPoolTag)?
 					};
 
 					println!("{:?}, {:?}, {:?}", String::from_utf8(class.to_vec()), String::from_utf8(name.to_vec()), String::from_utf8(desc.to_vec()));
@@ -226,7 +211,7 @@ impl VmStackFrame {
 					let (class, name, desc) = if let CpInfo::MethodRef(method_ref) = self.class.get_constant_pool(index)? {
 						method_ref.class_name_descriptor(&self.class)?
 					} else {
-						Err(WrongConstantPoolTag)?
+						Err(ClassFileParseError::WrongConstantPoolTag)?
 					};
 
 					println!("{:?}, {:?}, {:?}", String::from_utf8(class.to_vec()), String::from_utf8(name.to_vec()), String::from_utf8(desc.to_vec()));
@@ -256,7 +241,7 @@ impl VmStackFrame {
 					let (class, name, desc) = if let CpInfo::MethodRef(method_ref) = self.class.get_constant_pool(index)? {
 						method_ref.class_name_descriptor(&self.class)?
 					} else {
-						Err(WrongConstantPoolTag)?
+						Err(ClassFileParseError::WrongConstantPoolTag)?
 					};
 
 					println!("{:?}, {:?}, {:?}", String::from_utf8(class.to_vec()), String::from_utf8(name.to_vec()), String::from_utf8(desc.to_vec()));
@@ -286,16 +271,13 @@ impl VmStackFrame {
 
 #[cfg(test)]
 mod testing {
-	use std::any::Any;
-	use std::cmp::Ordering;
 	use std::fs::File;
-	use std::hint::black_box;
 	use std::io::BufReader;
 	use std::sync::atomic::AtomicUsize;
 	use std::sync::atomic::Ordering::Relaxed;
 	use inkwell::module::Linkage;
 	use zip::ZipArchive;
-	use crate::classfile::{AttributeInfo, ClassFile, CodeAttribute, CpInfo, JUtf8, Parse};
+	use crate::classfile::{AttributeInfo, ClassFile, CodeAttribute, Parse};
 	use crate::executor::{ClassInstance, Vm};
 	use super::VmStackFrame;
 
@@ -407,11 +389,8 @@ mod testing {
 	#[test]
 	fn test_jit() {
 		use inkwell::OptimizationLevel;
-		use inkwell::builder::Builder;
 		use inkwell::context::Context;
-		use inkwell::execution_engine::{ExecutionEngine, JitFunction};
-		use inkwell::module::Module;
-		use std::error::Error;
+		use inkwell::execution_engine::JitFunction;
 
 		static CALLS: AtomicUsize = AtomicUsize::new(0);
 		#[no_mangle]
