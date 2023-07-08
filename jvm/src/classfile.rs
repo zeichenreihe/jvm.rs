@@ -2,17 +2,52 @@ use std::fmt::{Debug, Formatter};
 use std::io::Read;
 
 use gen::declare_jvm_struct;
-use crate::errors::ClassFileParseError;
+use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
+
+macro_rules! gen_parse_u_int {
+	($name:tt, $n:literal, $t:ty) => {
+		fn $name<R: Read>(reader: &mut R) -> Result<$t, std::io::Error> {
+			let mut buf = [0u8; $n];
+			let length = reader.read(&mut buf)?;
+			if length == $n {
+				Ok(<$t>::from_be_bytes(buf))
+			} else {
+				Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))
+			}
+		}
+	}
+}
+gen_parse_u_int!(parse_u1, 1, u8);
+gen_parse_u_int!(parse_u2, 2, u16);
+gen_parse_u_int!(parse_u4, 4, u32);
+
+/// First calls the `size` parameter to get the length of the data, then calls `element` so often to read the data, returning the data then. The argument
+/// `reader` is given to both closures.
+fn parse_vec<T, R: Read, E, SIZE, ELEMENT>(reader: &mut R, size: SIZE, element: ELEMENT) -> Result<Vec<T>, E>
+	where
+		SIZE: FnOnce(&mut R) -> Result<usize, E>,
+		ELEMENT: Fn(&mut R) -> Result<T, E>
+{
+	let count = size(reader)?;
+	let mut vec = Vec::with_capacity(count);
+	for _ in 0..count {
+		vec.push(element(reader)?);
+	}
+	Ok(vec)
+}
 
 pub trait Parse<R: Read> {
+	#[deprecated]
 	fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, ClassFileParseError> where Self:Sized;
 }
 
 pub trait ParseMulti<R: Read, T: Parse<R>> {
+	#[deprecated]
 	fn parse_multi(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>, count: usize) -> Result<Vec<T>, ClassFileParseError>;
 }
 
 impl <R: Read, T: Parse<R>> ParseMulti<R, T> for Vec<T> {
+	#[allow(deprecated)]
 	fn parse_multi(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>, count: usize) -> Result<Vec<T>, ClassFileParseError> {
 		let mut vec = Vec::with_capacity(count);
 		for _ in 0..count { vec.push(T::parse(reader, constant_pool)?); }
@@ -77,11 +112,26 @@ impl PartialEq<&str> for JUtf8 {
 	}
 }
 
+macro_rules! try_from_enum_impl {
+	($enum_type:ty, $pattern:path, $inner_type:ty, $error_type:ty) => {
+		impl TryFrom<$enum_type> for $inner_type {
+			type Error = $error_type;
+			fn try_from(value: $enum_type) -> Result<Self, Self::Error> {
+				match value {
+					$pattern(value) => Ok(value),
+					_ => Err(Self::Error {})
+				}
+			}
+		}
+	}
+}
+
 declare_jvm_struct!(
 	struct CpInfoClass {
 		u2 name_index;
 	}
 );
+try_from_enum_impl!(CpInfo, CpInfo::Class, CpInfoClass, ConstantPoolTagMismatchError);
 impl CpInfoClass {
 	pub fn name<'a>(&'a self, class_file: &'a ClassFile) -> Result<JUtf8, ClassFileParseError> {
 		if let CpInfo::Utf8(utf8) = class_file.get_constant_pool(self.name_index as usize)? {
@@ -91,12 +141,14 @@ impl CpInfoClass {
 		}
 	}
 }
+
 declare_jvm_struct!(
 	struct CpInfoFieldRef {
 		u2 class_index;
 		u2 name_and_type_index;
 	}
 );
+try_from_enum_impl!(CpInfo, CpInfo::FieldRef, CpInfoFieldRef, ConstantPoolTagMismatchError);
 impl CpInfoFieldRef {
 	pub fn class_name_descriptor<'a>(&'a self, class_file: &'a ClassFile) -> Result<(JUtf8, JUtf8, JUtf8), ClassFileParseError> {
 		let class = if let CpInfo::Class(class) = class_file.get_constant_pool(self.class_index as usize)? {
@@ -114,12 +166,14 @@ impl CpInfoFieldRef {
 		Ok((class.clone(), name.clone(), desc.clone()))
 	}
 }
+
 declare_jvm_struct!(
 	struct CpInfoMethodRef {
 		u2 class_index;
 		u2 name_and_type_index;
 	}
 );
+try_from_enum_impl!(CpInfo, CpInfo::MethodRef, CpInfoMethodRef, ConstantPoolTagMismatchError);
 impl CpInfoMethodRef {
 	pub fn class_name_descriptor<'a>(&'a self, class_file: &'a ClassFile) -> Result<(JUtf8, JUtf8, JUtf8), ClassFileParseError> {
 		let class = if let CpInfo::Class(class) = class_file.get_constant_pool(self.class_index as usize)? {
@@ -137,45 +191,65 @@ impl CpInfoMethodRef {
 		Ok((class.clone(), name, descriptor))
 	}
 }
+
 declare_jvm_struct!(
 	struct CpInfoInterfaceMethodRef {
 		u2 class_index;
 		u2 name_and_type_index;
 	}
 );
+try_from_enum_impl!(CpInfo, CpInfo::InterfaceMethodRef, CpInfoInterfaceMethodRef, ConstantPoolTagMismatchError);
+
 declare_jvm_struct!(
 	struct CpInfoString {
 		u2 string_index;
 	}
 );
-declare_jvm_struct!(
-	struct CpInfoInteger {
-		u4 bytes;
+try_from_enum_impl!(CpInfo, CpInfo::String, CpInfoString, ConstantPoolTagMismatchError);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CpInfoInteger {
+	bytes: u32,
+}
+impl CpInfoInteger {
+	fn parse<R: Read>(reader: &mut R) -> Result<CpInfoInteger, ClassFileParseError> {
+		Ok(Self {
+			bytes: parse_u4(reader)?,
+		})
 	}
-);
+}
+try_from_enum_impl!(CpInfo, CpInfo::Integer, CpInfoInteger, ConstantPoolTagMismatchError);
+
 declare_jvm_struct!(
 	struct CpInfoFloat {
 		u4 bytes;
 	}
 );
+try_from_enum_impl!(CpInfo, CpInfo::Float, CpInfoFloat, ConstantPoolTagMismatchError);
+
 declare_jvm_struct!(
 	struct CpInfoLong {
 		u4 high_bytes;
 		u4 low_bytes;
 	}
 );
+try_from_enum_impl!(CpInfo, CpInfo::Long, CpInfoLong, ConstantPoolTagMismatchError);
+
 declare_jvm_struct!(
 	struct CpInfoDouble {
 		u4 high_bytes;
 		u4 low_bytes;
 	}
 );
+try_from_enum_impl!(CpInfo, CpInfo::Double, CpInfoDouble, ConstantPoolTagMismatchError);
+
 declare_jvm_struct!(
 	struct CpInfoNameAndType {
 		u2 name_index;
 		u2 descriptor_index;
 	}
 );
+try_from_enum_impl!(CpInfo, CpInfo::NameAndType, CpInfoNameAndType, ConstantPoolTagMismatchError);
 impl CpInfoNameAndType {
 	pub fn name_descriptor<'a>(&'a self, class_file: &'a ClassFile) -> Result<(JUtf8, JUtf8), ClassFileParseError> {
 		let name: JUtf8 = if let CpInfo::Utf8(utf8) = class_file.get_constant_pool(self.name_index as usize)? {
@@ -193,35 +267,50 @@ impl CpInfoNameAndType {
 		Ok((name.clone(), descriptor.clone()))
 	}
 }
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct CpInfoUtf8 {
-	length: u16,
-	bytes: Vec<u8>, // [length]
+	bytes: Vec<u8>,
 }
-impl<R: Read> Parse<R> for CpInfoUtf8 {
-	fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, ClassFileParseError> where Self: Sized {
-		let length = u16::parse(reader, constant_pool)?;
-		let bytes = Vec::parse_multi(reader, constant_pool, length as usize)?;
-		Ok(Self { length, bytes })
+impl CpInfoUtf8 {
+	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
+		Ok(Self {
+			bytes: parse_vec(reader,
+				|r| Ok(parse_u2(r)? as usize),
+				|r| parse_u1(r)
+			)?,
+		})
 	}
 }
 impl Debug for CpInfoUtf8 {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "CpInfoUtf8 {{ length: {}, bytes: \"{}\" }}", self.length, String::from_utf8_lossy(&self.bytes))
+		write!(f, "CpInfoUtf8 {{ bytes: \"{}\" }}", String::from_utf8_lossy(&self.bytes))
 	}
 }
+try_from_enum_impl!(CpInfo, CpInfo::Utf8, CpInfoUtf8, ConstantPoolTagMismatchError);
+
 declare_jvm_struct!(
 	struct CpInfoMethodHandle {
 		u1 reference_kind;
 		u2 reference_index;
 	}
 );
-declare_jvm_struct!(
-	struct CpInfoInvokeDynamic {
-		u2 bootstrap_method_attr_index;
-		u2 name_and_type_index;
+try_from_enum_impl!(CpInfo, CpInfo::MethodHandle, CpInfoMethodHandle, ConstantPoolTagMismatchError);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CpInfoInvokeDynamic {
+	bootstrap_method_attr_index: u16,
+	name_and_type_index: u16,
+}
+impl CpInfoInvokeDynamic {
+	fn parse<R: Read>(reader: &mut R) -> Result<CpInfoInvokeDynamic, ClassFileParseError> {
+		Ok(CpInfoInvokeDynamic {
+			bootstrap_method_attr_index: parse_u2(reader)?,
+			name_and_type_index: parse_u2(reader)?,
+		})
 	}
-);
+}
+try_from_enum_impl!(CpInfo, CpInfo::InvokeDynamic, CpInfoInvokeDynamic, ConstantPoolTagMismatchError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CpInfo { // 4.4, Table 4.3
@@ -229,24 +318,23 @@ pub enum CpInfo { // 4.4, Table 4.3
 	String(CpInfoString), Integer(CpInfoInteger), Float(CpInfoFloat), Long(CpInfoLong), Double(CpInfoDouble),
 	NameAndType(CpInfoNameAndType), Utf8(CpInfoUtf8), MethodHandle(CpInfoMethodHandle), InvokeDynamic(CpInfoInvokeDynamic),
 }
-impl<R: Read> Parse<R> for CpInfo {
-	fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, ClassFileParseError> {
-		let tag: u8 = u8::parse(reader, constant_pool)?;
-		match tag {
-			1  => Ok(Self::Utf8(CpInfoUtf8::parse(reader, constant_pool)?)),
-			3  => Ok(Self::Integer(CpInfoInteger::parse(reader, constant_pool)?)),
-			4  => Ok(Self::Float(CpInfoFloat::parse(reader, constant_pool)?)),
-			5  => Ok(Self::Long(CpInfoLong::parse(reader, constant_pool)?)),
-			6  => Ok(Self::Double(CpInfoDouble::parse(reader, constant_pool)?)),
-			7  => Ok(Self::Class(CpInfoClass::parse(reader, constant_pool)?)),
-			8  => Ok(Self::String(CpInfoString::parse(reader, constant_pool)?)),
-			9  => Ok(Self::FieldRef(CpInfoFieldRef::parse(reader, constant_pool)?)),
-			10 => Ok(Self::MethodRef(CpInfoMethodRef::parse(reader, constant_pool)?)),
-			11 => Ok(Self::InterfaceMethodRef(CpInfoInterfaceMethodRef::parse(reader, constant_pool)?)),
-			12 => Ok(Self::NameAndType(CpInfoNameAndType::parse(reader, constant_pool)?)),
-			15 => Ok(Self::MethodHandle(CpInfoMethodHandle::parse(reader, constant_pool)?)),
-			18 => Ok(Self::InvokeDynamic(CpInfoInvokeDynamic::parse(reader, constant_pool)?)),
-			_ => Err(ClassFileParseError::UnknownConstantPoolTag(tag)),
+impl CpInfo {
+	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
+		match parse_u1(reader)? {
+			1  => Ok(Self::Utf8(CpInfoUtf8::parse(reader)?)),
+			3  => Ok(Self::Integer(CpInfoInteger::parse(reader)?)),
+			4  => Ok(Self::Float(CpInfoFloat::parse(reader, None)?)),
+			5  => Ok(Self::Long(CpInfoLong::parse(reader, None)?)),
+			6  => Ok(Self::Double(CpInfoDouble::parse(reader, None)?)),
+			7  => Ok(Self::Class(CpInfoClass::parse(reader, None)?)),
+			8  => Ok(Self::String(CpInfoString::parse(reader, None)?)),
+			9  => Ok(Self::FieldRef(CpInfoFieldRef::parse(reader, None)?)),
+			10 => Ok(Self::MethodRef(CpInfoMethodRef::parse(reader, None)?)),
+			11 => Ok(Self::InterfaceMethodRef(CpInfoInterfaceMethodRef::parse(reader, None)?)),
+			12 => Ok(Self::NameAndType(CpInfoNameAndType::parse(reader, None)?)),
+			15 => Ok(Self::MethodHandle(CpInfoMethodHandle::parse(reader, None)?)),
+			18 => Ok(Self::InvokeDynamic(CpInfoInvokeDynamic::parse(reader)?)),
+			tag => Err(ClassFileParseError::UnknownConstantPoolTag(tag)),
 		}
 	}
 }
@@ -261,15 +349,27 @@ impl CpInfo {
 	}
 }
 
-declare_jvm_struct!( // 4.5
-	struct FieldInfo {
-	    u2             access_flags;
-	    u2             name_index;
-	    u2             descriptor_index;
-	    u2             attributes_count;
-	    AttributeInfo  attributes[attributes_count];
+#[derive(Debug, Clone, PartialEq)]
+struct FieldInfo { // 4.5
+	access_flags: u16,
+	name: CpInfoUtf8,
+	descriptor: CpInfoUtf8,
+	attributes: Vec<AttributeInfo>,
+}
+
+impl FieldInfo {
+	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
+		Ok(FieldInfo {
+			access_flags: parse_u2(reader)?,
+			name: constant_pool.parse_index(reader)?,
+			descriptor: constant_pool.parse_index(reader)?,
+			attributes: parse_vec(reader,
+			    |r| Ok(parse_u2(r)? as usize),
+			    |r| AttributeInfo::parse(r, constant_pool),
+			)?,
+		})
 	}
-);
+}
 
 declare_jvm_struct!( // 4.7.2
 	struct ConstantValueAttribute {
@@ -678,69 +778,71 @@ pub enum AttributeInfo { // 4.7
 	AnnotationDefault(AnnotationDefaultAttribute), // 5.0, 49.0
 	BootstrapMethods(BootstrapMethodsAttribute), // 7, 51.0
 	Unknown {
-		attribute_name_index: u16,
-		attribute_length: u32,
-		info: Vec<u8>, // [attribute_length];
+		name: &'static str,
+		info: Vec<u8>,
 	},
 }
 
-impl<R: Read> Parse<R> for AttributeInfo {
-	fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, ClassFileParseError> where Self: Sized {
-		let pool = constant_pool.expect("Cannot parse AttributeInfo without a constant pool, this should not be reachable!");
+impl AttributeInfo {
+	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
+		let s: CpInfoUtf8 = constant_pool.parse_index(reader)?;
 
-		let attribute_name_index = u16::parse(reader, constant_pool)?;
-		let address = attribute_name_index as usize - 1;
-		let attribute_name = pool.get(address)
-			.ok_or(ClassFileParseError::NoSuchConstantPoolEntry(address))?;
-
-		let s = if let CpInfo::Utf8(CpInfoUtf8 { bytes, ..}) = attribute_name {
-			std::str::from_utf8(bytes)?
-		} else {
-			Err(ClassFileParseError::WrongConstantPoolTag)?
-		};
-
-		Ok(match s {
-			"ConstantValue" => Self::ConstantValue(ConstantValueAttribute::parse(reader, constant_pool)?),
-			"Code" => Self::Code(CodeAttribute::parse(reader, constant_pool)?),
-			"StackMapTable" => Self::StackMapTable(StackMapTableAttribute::parse(reader, constant_pool)?),
-			"Exceptions" => Self::Exceptions(ExceptionsAttribute::parse(reader, constant_pool)?),
-			"InnerClasses" => Self::InnerClasses(InnerClassesAttribute::parse(reader, constant_pool)?),
-			"EnclosingMethod" => Self::EnclosingMethod(EnclosingMethodAttribute::parse(reader, constant_pool)?),
-			"Synthetic" => Self::Synthetic(SyntheticAttribute::parse(reader, constant_pool)?),
-			"Signature" => Self::Signature(SignatureAttribute::parse(reader, constant_pool)?),
-			"SourceFile" => Self::SourceFile(SourceFileAttribute::parse(reader, constant_pool)?),
-			"SourceDebugExtension" => Self::SourceDebugExtension(SourceDebugExtensionsAttribute::parse(reader, constant_pool)?),
-			"LineNumberTable" => Self::LineNumberTable(LineNumberTableAttribute::parse(reader, constant_pool)?),
-			"LocalVariableTable" => Self::LocalVariableTable(LocalVariableTableAttribute::parse(reader, constant_pool)?),
-			"LocalVariableTypeTable" => Self::LocalVariableTypeTable(LocalVariableTypeTableAttribute::parse(reader, constant_pool)?),
-			"Deprecated" => Self::Deprecated(DeprecatedAttribute::parse(reader, constant_pool)?),
-			"RuntimeVisibleAnnotations" => Self::RuntimeVisibleAnnotations(RuntimeVisibleAnnotationsAttribute::parse(reader, constant_pool)?),
-			"RuntimeInvisibleAnnotations" => Self::RuntimeInvisibleAnnotations(RuntimeInvisibleAnnotationsAttribute::parse(reader, constant_pool)?),
-			"RuntimeVisibleParameterAnnotations" => Self::RuntimeVisibleParameterAnnotations(RuntimeVisibleParameterAnnotationsAttribute::parse(reader, constant_pool)?),
-			"RuntimeInvisibleParameterAnnotations" => Self::RuntimeInvisibleParameterAnnotations(RuntimeInvisibleParameterAnnotationsAttribute::parse(reader, constant_pool)?),
-			"AnnotationDefault" => Self::AnnotationDefault(AnnotationDefaultAttribute::parse(reader, constant_pool)?),
-			"BootstrapMethods" => Self::BootstrapMethods(BootstrapMethodsAttribute::parse(reader, constant_pool)?),
-			_ => {
-				let attribute_length = u32::parse(reader, constant_pool)?;
-				let info = Vec::parse_multi(reader, constant_pool, attribute_length as usize)?;
-				eprintln!("WARN: unknown attr: {s}: {info:?}");
-				Self::Unknown { attribute_name_index, attribute_length, info }
+		let pool = Some(&constant_pool.0);
+		Ok(match std::str::from_utf8(&s.bytes)? {
+			"ConstantValue" => Self::ConstantValue(ConstantValueAttribute::parse(reader, pool)?),
+			"Code" => Self::Code(CodeAttribute::parse(reader, pool)?),
+			"StackMapTable" => Self::StackMapTable(StackMapTableAttribute::parse(reader, pool)?),
+			"Exceptions" => Self::Exceptions(ExceptionsAttribute::parse(reader, pool)?),
+			"InnerClasses" => Self::InnerClasses(InnerClassesAttribute::parse(reader, pool)?),
+			"EnclosingMethod" => Self::EnclosingMethod(EnclosingMethodAttribute::parse(reader, pool)?),
+			"Synthetic" => Self::Synthetic(SyntheticAttribute::parse(reader, pool)?),
+			"Signature" => Self::Signature(SignatureAttribute::parse(reader, pool)?),
+			"SourceFile" => Self::SourceFile(SourceFileAttribute::parse(reader, pool)?),
+			"SourceDebugExtension" => Self::SourceDebugExtension(SourceDebugExtensionsAttribute::parse(reader, pool)?),
+			"LineNumberTable" => Self::LineNumberTable(LineNumberTableAttribute::parse(reader, pool)?),
+			"LocalVariableTable" => Self::LocalVariableTable(LocalVariableTableAttribute::parse(reader, pool)?),
+			"LocalVariableTypeTable" => Self::LocalVariableTypeTable(LocalVariableTypeTableAttribute::parse(reader, pool)?),
+			"Deprecated" => Self::Deprecated(DeprecatedAttribute::parse(reader, pool)?),
+			"RuntimeVisibleAnnotations" => Self::RuntimeVisibleAnnotations(RuntimeVisibleAnnotationsAttribute::parse(reader, pool)?),
+			"RuntimeInvisibleAnnotations" => Self::RuntimeInvisibleAnnotations(RuntimeInvisibleAnnotationsAttribute::parse(reader, pool)?),
+			"RuntimeVisibleParameterAnnotations" => Self::RuntimeVisibleParameterAnnotations(RuntimeVisibleParameterAnnotationsAttribute::parse(reader, pool)?),
+			"RuntimeInvisibleParameterAnnotations" => Self::RuntimeInvisibleParameterAnnotations(RuntimeInvisibleParameterAnnotationsAttribute::parse(reader, pool)?),
+			"AnnotationDefault" => Self::AnnotationDefault(AnnotationDefaultAttribute::parse(reader, pool)?),
+			"BootstrapMethods" => Self::BootstrapMethods(BootstrapMethodsAttribute::parse(reader, pool)?),
+			name => {
+				let info = parse_vec(reader,
+				   |r| Ok(parse_u4(r)? as usize),
+				   |r| parse_u1(r)
+				)?;
+				eprintln!("WARN: unknown attr: {name}: {info:?}");
+				Self::Unknown { name, info }
 			},
 		})
 	}
 }
 
-declare_jvm_struct!( // 4.6
-	struct MethodInfo {
-	    u2             access_flags;
-	    u2             name_index;
-	    u2             descriptor_index;
-	    u2             attributes_count;
-	    AttributeInfo  attributes[attributes_count];
-	}
-);
+
+#[derive(Debug, Clone, PartialEq)]
+struct MethodInfo { // 4.6
+	access_flags: u16,
+	name: CpInfoUtf8,
+	descriptor: CpInfoUtf8,
+	attributes: Vec<AttributeInfo>,
+}
 
 impl MethodInfo {
+	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
+		Ok(MethodInfo {
+			access_flags: parse_u2(reader)?,
+			name: constant_pool.parse_index(reader)?,
+			descriptor: constant_pool.parse_index(reader)?,
+			attributes: parse_vec(reader,
+			  |r| Ok(parse_u2(r)? as usize),
+			  |r| AttributeInfo::parse(r, constant_pool)
+			)?
+		})
+	}
+
 	pub fn get_code(&self) -> Result<&AttributeInfo, ClassFileParseError> {
 		for attribute in &self.attributes {
 			if matches!(attribute, AttributeInfo::Code(_)) {
@@ -750,46 +852,111 @@ impl MethodInfo {
 		Err(ClassFileParseError::NoSuchAttribute("`Code` attribute not found."))
 	}
 
-	pub fn name<'a>(&'a self, class_file: &'a ClassFile) -> Result<JUtf8, ClassFileParseError> {
-		if let CpInfo::Utf8(utf8) = class_file.get_constant_pool(self.name_index as usize)? {
-			Ok(JUtf8(utf8.bytes.clone()))
-		} else {
-			Err(ClassFileParseError::WrongConstantPoolTag)
+	pub fn name(&self) -> Result<JUtf8, ClassFileParseError> {
+		Ok(JUtf8(self.name.bytes.clone()))
+	}
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ConstantPool(Vec<CpInfo>);
+
+impl ConstantPool {
+	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
+		let vec: Vec<CpInfo> = parse_vec(reader,
+			|r| Ok(parse_u2(r)? as usize - 1),
+			|r| CpInfo::parse(r)
+		)?;
+		Ok(ConstantPool(vec))
+	}
+
+	/// Reads an [u16] and interprets it as an index into the constant pool, and tries to convert the tag there into the correct type.
+	fn parse_index<R: Read, T: TryFrom<CpInfo>>(&self, reader: &mut R) -> Result<T, ClassFileParseError>
+		where ClassFileParseError: From<<T as TryFrom<CpInfo>>::Error>
+	{
+		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic?
+		match self.0.get(index) {
+			Some(item) => Ok(T::try_from(item.clone())?),
+			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index))
+		}
+	}
+
+	/// Reads an [u16] and interprets it as an index into the constant pool, allowing `0` for [Option::None]. If not zero, reads the constant pool at the given
+	/// index and converts the element there into the correct type.
+	fn parse_index_optional<R: Read, T: TryFrom<CpInfo>>(&self, reader: &mut R) -> Result<Option<T>, ClassFileParseError>
+		where ClassFileParseError: From<<T as TryFrom<CpInfo>>::Error>
+	{
+		let index = parse_u2(reader)? as usize;
+		if index == 0 {
+			return Ok(None);
+		}
+		let index = index - 1;
+		match self.0.get(index) {
+			Some(item) => Ok(Some(T::try_from(item.clone())?)),
+			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index))
 		}
 	}
 }
 
-declare_jvm_struct!( // 4.1
-	struct ClassFile {
-	    u2             minor_version;
-	    u2             major_version;
-	    u2             constant_pool_count;
-	    CpInfo         constant_pool[constant_pool_count-1];
-	    u2             access_flags;
-	    u2             this_class;
-	    u2             super_class;
-	    u2             interfaces_count;
-	    u2             interfaces[interfaces_count];
-	    u2             fields_count;
-	    FieldInfo      fields[fields_count];
-	    u2             methods_count;
-	    MethodInfo     methods[methods_count];
-	    u2             attributes_count;
-	    AttributeInfo  attributes[attributes_count];
-	} {
-		let constant_pool = None;
-		// verify the "magic"
-		let magic = u32::parse(reader, None)?;
-		if magic != 0xCAFE_BABE {
-			Err(ClassFileParseError::InvalidMagic(magic))?
-		}
-	}
-);
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassFile { // 4.1
+	minor_version: u16,
+	major_version: u16,
+	constant_pool: ConstantPool,
+	access_flags: u16,
+	this_class: CpInfoClass,
+	super_class: Option<CpInfoClass>,
+	interfaces: Vec<CpInfoClass>,
+	fields: Vec<FieldInfo>,
+	methods: Vec<MethodInfo>,
+	attributes: Vec<AttributeInfo>,
+}
 
 impl ClassFile {
+	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
+		let magic = parse_u4(reader)?;
+		if magic != 0xCAFE_BABE {
+			return Err(ClassFileParseError::InvalidMagic(magic));
+		}
+
+		let minor_version = parse_u2(reader)?;
+		let major_version = parse_u2(reader)?;
+
+		let constant_pool = ConstantPool::parse(reader)?;
+
+		let access_flags = parse_u2(reader)?;
+
+		let this_class: CpInfoClass = constant_pool.parse_index(reader)?;
+		let super_class: Option<CpInfoClass> = constant_pool.parse_index_optional(reader)?;
+
+		let interfaces: Vec<CpInfoClass> = {
+			let count = parse_u2(reader)? as usize;
+			let mut vec = Vec::with_capacity(count);
+			for _ in 0..count {
+				vec.push(constant_pool.parse_index(reader)?);
+			}
+			vec
+		};
+
+		let fields = parse_vec(reader,
+			|r| Ok(parse_u2(r)? as usize),
+			|r| FieldInfo::parse(r, &constant_pool)
+		)?;
+		let methods = parse_vec(reader,
+		   |r| Ok(parse_u2(r)? as usize),
+		   |r| MethodInfo::parse(r, &constant_pool)
+		)?;
+		let attributes = parse_vec(reader,
+		   |r| Ok(parse_u2(r)? as usize),
+		   |r| AttributeInfo::parse(r, &constant_pool)
+		)?;
+
+		Ok(ClassFile { minor_version, major_version, constant_pool, access_flags, this_class, super_class, interfaces, fields, methods, attributes })
+	}
+
+	#[deprecated]
 	pub fn get_constant_pool(&self, constant_pool_address: usize) -> Result<&CpInfo, ClassFileParseError> {
 		let address = constant_pool_address - 1;
-		self.constant_pool
+		self.constant_pool.0
 			.get(address)
 			.ok_or(ClassFileParseError::NoSuchConstantPoolEntry(address))
 	}
@@ -799,11 +966,7 @@ impl ClassFile {
 	}
 
 	pub fn name(&self) -> Result<JUtf8, ClassFileParseError> {
-		if let CpInfo::Class(class) = self.get_constant_pool(self.this_class as usize)? {
-			class.name(self)
-		} else {
-			Err(ClassFileParseError::WrongConstantPoolTag)
-		}
+		self.this_class.name(self)
 	}
 }
 
@@ -812,11 +975,11 @@ mod testing {
 	use std::fs::File;
 	use std::io::BufReader;
 	use zip::ZipArchive;
-	use super::{ClassFile, Parse};
+	use super::ClassFile;
 	#[test]
 	fn try_parse_classfile() {
 		let bytes = include_bytes!("../../java_example_classfiles/Test.class");
-		let classfile = ClassFile::parse(&mut &bytes[..], None).unwrap();
+		let classfile = ClassFile::parse(&mut &bytes[..]).unwrap();
 		classfile.verify().unwrap();
 
 		println!("{:#?}", classfile);
@@ -833,7 +996,7 @@ mod testing {
 		let mut rt = ZipArchive::new(BufReader::new(rt)).unwrap();
 
 		let mut class_file = rt.by_name("java/lang/Object.class").unwrap();
-		let classfile = ClassFile::parse(&mut class_file, None).unwrap();
+		let classfile = ClassFile::parse(&mut class_file).unwrap();
 
 		println!("{classfile:#?}");
 	}

@@ -275,6 +275,7 @@ pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
 				}
 
 				impl<R: Read> Parse<R> for #struct_name {
+					#[allow(deprecated)]
 					fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, ClassFileParseError> {
 						#( #braces )*
 						#( #parse_out )*
