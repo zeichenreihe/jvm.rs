@@ -233,17 +233,17 @@ impl<R: Read> Parse<R> for CpInfo {
 	fn parse(reader: &mut R, constant_pool: Option<&Vec<CpInfo>>) -> Result<Self, ClassFileParseError> {
 		let tag: u8 = u8::parse(reader, constant_pool)?;
 		match tag {
-			7  => Ok(Self::Class(CpInfoClass::parse(reader, constant_pool)?)),
-			9  => Ok(Self::FieldRef(CpInfoFieldRef::parse(reader, constant_pool)?)),
-			10 => Ok(Self::MethodRef(CpInfoMethodRef::parse(reader, constant_pool)?)),
-			11 => Ok(Self::InterfaceMethodRef(CpInfoInterfaceMethodRef::parse(reader, constant_pool)?)),
-			8  => Ok(Self::String(CpInfoString::parse(reader, constant_pool)?)),
+			1  => Ok(Self::Utf8(CpInfoUtf8::parse(reader, constant_pool)?)),
 			3  => Ok(Self::Integer(CpInfoInteger::parse(reader, constant_pool)?)),
 			4  => Ok(Self::Float(CpInfoFloat::parse(reader, constant_pool)?)),
 			5  => Ok(Self::Long(CpInfoLong::parse(reader, constant_pool)?)),
 			6  => Ok(Self::Double(CpInfoDouble::parse(reader, constant_pool)?)),
+			7  => Ok(Self::Class(CpInfoClass::parse(reader, constant_pool)?)),
+			8  => Ok(Self::String(CpInfoString::parse(reader, constant_pool)?)),
+			9  => Ok(Self::FieldRef(CpInfoFieldRef::parse(reader, constant_pool)?)),
+			10 => Ok(Self::MethodRef(CpInfoMethodRef::parse(reader, constant_pool)?)),
+			11 => Ok(Self::InterfaceMethodRef(CpInfoInterfaceMethodRef::parse(reader, constant_pool)?)),
 			12 => Ok(Self::NameAndType(CpInfoNameAndType::parse(reader, constant_pool)?)),
-			1  => Ok(Self::Utf8(CpInfoUtf8::parse(reader, constant_pool)?)),
 			15 => Ok(Self::MethodHandle(CpInfoMethodHandle::parse(reader, constant_pool)?)),
 			18 => Ok(Self::InvokeDynamic(CpInfoInvokeDynamic::parse(reader, constant_pool)?)),
 			_ => Err(ClassFileParseError::UnknownConstantPoolTag(tag)),

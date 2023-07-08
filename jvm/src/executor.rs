@@ -17,19 +17,48 @@ type JFloat = f32;
 type JDouble = f64;
 type JReference = u64; //todo!();
 
+struct Field {
+
+}
+
+impl Field {
+	fn get_size(&self) -> usize {
+		todo!()
+	}
+}
+
+struct Class {
+	super_class_size: usize,
+	class: ClassFile,
+	fields: Vec<Field>,
+}
+
+impl Class {
+	fn field_offset(&self) -> Result<usize, ()> {
+		let mut pos = self.super_class_size;
+		for field in self.fields {
+			if field == test { break; }
+			pos += field.get_size();
+		}
+		Ok(pos)
+	}
+}
+
 /// Represents the memory that contains the fields of a class
 struct ClassInstance<const SIZE: usize> {
+	class: Class,
 	// in memory:
 	// <parent class instance><first field><second field><...><last field>
 	data: Box<[u8; SIZE]>
 }
 
 impl<const SIZE: usize> ClassInstance<SIZE> {
-	/// Returns the whole size of the class instance
+	/// Returns the whole size of the class instance.
 	pub fn get_size(&self) -> usize {
 		SIZE
 	}
 
+	/// Returns a [JInt] from the class instance.
 	pub fn get_int(&self, offset: usize) -> Result<JInt, OutOfBoundsError> {
 		let slice = self.data
 			.get(offset..).ok_or(OutOfBoundsError)?
@@ -37,6 +66,7 @@ impl<const SIZE: usize> ClassInstance<SIZE> {
 			.try_into().expect("unreachable: the slice is guaranteed to be 4 in length");
 		Ok(JInt::from_ne_bytes(slice))
 	}
+	/// Stores a [JInt] into the class instance.
 	pub fn put_int(&mut self, offset: usize, int: JInt) -> Result<(), OutOfBoundsError> {
 		let slice = self.data
 			.get_mut(offset..).ok_or(OutOfBoundsError)?
