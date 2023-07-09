@@ -39,11 +39,11 @@ impl ConstantValueAttribute {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeAttribute { // 4.7.3
-	max_stack: u16,
-	max_locals: u16,
-	code: Vec<u8>,
-	exception_table: Vec<ExceptionTableEntry>,
-	attributes: Vec<AttributeInfo>,
+	pub max_stack: u16,
+	pub max_locals: u16,
+	pub code: Vec<u8>,
+	pub exception_table: Vec<ExceptionTableEntry>,
+	pub attributes: Vec<AttributeInfo>,
 }
 
 impl CodeAttribute {
@@ -71,7 +71,7 @@ impl CodeAttribute {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ExceptionTableEntry { // 4.7.3, exception_table
+pub struct ExceptionTableEntry { // 4.7.3, exception_table
 	start_pc: u16,
 	end_pc: u16,
 	handler_pc: u16,

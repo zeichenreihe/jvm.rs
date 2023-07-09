@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Read;
-use std::mem::{size_of, size_of_val};
+use std::mem::size_of;
 use std::sync::Arc;
-use crate::classfile::{ClassFile, CpInfo, JUtf8, Parse};
-use crate::errors::{ClassFileParseError, OutOfBoundsError, RuntimeError};
+use crate::classfile::{ClassFile, ConstantPoolElement, FieldRefInfo, JUtf8, MethodRefInfo, Utf8Info};
+use crate::errors::{OutOfBoundsError, RuntimeError};
 use crate::opcodes::Opcode;
 
 type JBoolean = bool;//todo!();
@@ -17,6 +17,7 @@ type JFloat = f32;
 type JDouble = f64;
 type JReference = u64; //todo!();
 
+#[derive(PartialEq)]
 struct Field {
 
 }
@@ -35,6 +36,7 @@ struct Class {
 
 impl Class {
 	fn field_offset(&self) -> Result<usize, ()> {
+		let test = todo!();
 		let mut pos = self.super_class_size;
 		for field in self.fields {
 			if field == test { break; }
@@ -102,11 +104,10 @@ impl Vm {
 	}
 
 	fn try_add_class<R: Read>(&mut self, mut reader: R) -> Result<(), RuntimeError> {
-		let classfile = ClassFile::parse(&mut reader, None)?;
-		let name = classfile.name()?.to_owned();
+		let classfile = ClassFile::parse(&mut reader)?;
 
-		match self.classes.insert(name.clone(), classfile) {
-			Some(class) => Err(RuntimeError::ClassAlreadyLoaded(class.name()?.to_owned())),
+		match self.classes.insert(classfile.this_class.name.clone().into(), classfile) {
+			Some(class) => Err(RuntimeError::ClassAlreadyLoaded(class.this_class.name.into())),
 			None => Ok(()),
 		}
 	}
@@ -189,25 +190,21 @@ impl VmStackFrame {
 				},
 				Opcode::GetStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
-					let (class, name, desc) = if let CpInfo::FieldRef(field) = self.class.get_constant_pool(index)? {
-						field.class_name_descriptor(&self.class)?
-					} else {
-						Err(ClassFileParseError::WrongConstantPoolTag)?
-					};
+					let field_ref: FieldRefInfo = self.class.constant_pool.get(index)?;
 
-					println!("{:?}, {:?}, {:?}", String::from_utf8(class.to_vec()), String::from_utf8(name.to_vec()), String::from_utf8(desc.to_vec()));
+					let name = field_ref.name_and_type.name;
+					let class = field_ref.class;
+					let desc = field_ref.name_and_type.descriptor;
+
+					println!("{class:?}, {name:?}, {desc:?}");
 
 					self.push_stack(2223)?;
 				},
 				Opcode::New => {
 					let index = self.read_constant_pool_two_indexes()?;
-					let name = if let CpInfo::Class(class) = self.class.get_constant_pool(index)? {
-						class.name(&self.class)?
-					} else {
-						Err(ClassFileParseError::WrongConstantPoolTag)?
-					};
+					let name: Utf8Info = self.class.constant_pool.get(index)?;
 
-					println!("{:?}", String::from_utf8(name.to_vec()));
+					println!("{name:?}");
 					self.push_stack(234)?;
 				},
 				Opcode::Dup => {
@@ -218,35 +215,37 @@ impl VmStackFrame {
 				Opcode::InvokeSpecial => {
 					let index = self.read_constant_pool_two_indexes()?;
 
-					let (class, name, desc) = if let CpInfo::MethodRef(method_ref) = self.class.get_constant_pool(index)? {
-						method_ref.class_name_descriptor(&self.class)?
-					} else {
-						Err(ClassFileParseError::WrongConstantPoolTag)?
-					};
+					let method_ref: MethodRefInfo = self.class.constant_pool.get(index)?;
 
-					println!("{:?}, {:?}, {:?}", String::from_utf8(class.to_vec()), String::from_utf8(name.to_vec()), String::from_utf8(desc.to_vec()));
+					let name = method_ref.name_and_type.name;
+					let class = method_ref.class;
+					let desc = method_ref.name_and_type.descriptor;
 
-					if desc == "()V" {
+					println!("{class:?}, {name:?}, {desc:?}");
+
+					let desc = desc.to_string();
+					if desc == String::from("()V") {
 						self.pop_stack()?;
 					}
 				},
 				Opcode::Ldc => {
 					let index = self.read_isn()? as usize;
-					println!("{:?}", self.class.get_constant_pool(index)?);
+					let item: ConstantPoolElement = self.class.constant_pool.get(index)?;
+					println!("{item:?}");
 					self.push_stack(3444)?;
 				},
 				Opcode::InvokeVirtual => {
 					let index = self.read_constant_pool_two_indexes()?;
 
-					let (class, name, desc) = if let CpInfo::MethodRef(method_ref) = self.class.get_constant_pool(index)? {
-						method_ref.class_name_descriptor(&self.class)?
-					} else {
-						Err(ClassFileParseError::WrongConstantPoolTag)?
-					};
+					let method_ref: MethodRefInfo = self.class.constant_pool.get(index)?;
 
-					println!("{:?}, {:?}, {:?}", String::from_utf8(class.to_vec()), String::from_utf8(name.to_vec()), String::from_utf8(desc.to_vec()));
+					let name = method_ref.name_and_type.name;
+					let class = method_ref.class;
+					let desc = method_ref.name_and_type.descriptor;
 
-					let desc = desc;
+					println!("{class:?}, {name:?}, {desc:?}");
+
+					let desc = desc.to_string();
 					if desc == "(Ljava/lang/String;)Ljava/lang/StringBuilder;" {
 						self.pop_stack()?;
 						let this = self.pop_stack()?;
@@ -268,14 +267,15 @@ impl VmStackFrame {
 				Opcode::InvokeStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
 
-					let (class, name, desc) = if let CpInfo::MethodRef(method_ref) = self.class.get_constant_pool(index)? {
-						method_ref.class_name_descriptor(&self.class)?
-					} else {
-						Err(ClassFileParseError::WrongConstantPoolTag)?
-					};
+					let method_ref: MethodRefInfo = self.class.constant_pool.get(index)?;
 
-					println!("{:?}, {:?}, {:?}", String::from_utf8(class.to_vec()), String::from_utf8(name.to_vec()), String::from_utf8(desc.to_vec()));
+					let name = method_ref.name_and_type.name;
+					let class = method_ref.class;
+					let desc = method_ref.name_and_type.descriptor;
 
+					println!("{class:?}, {name:?}, {desc:?}");
+
+					let desc = desc.to_string();
 					if desc == "([Ljava/lang/Object;)Ljava/lang/String;" {
 						let value = self.pop_stack()?;
 						self.push_stack(value + 100000)?;
@@ -307,7 +307,7 @@ mod testing {
 	use std::sync::atomic::Ordering::Relaxed;
 	use inkwell::module::Linkage;
 	use zip::ZipArchive;
-	use crate::classfile::{AttributeInfo, ClassFile, CodeAttribute, Parse};
+	use crate::classfile::{AttributeInfo, ClassFile, CodeAttribute};
 	use crate::executor::{ClassInstance, Vm};
 	use super::VmStackFrame;
 
@@ -315,13 +315,8 @@ mod testing {
 	#[cfg(target_os = "linux")]
 	fn test_run_isn_from_real_class_file() {
 		let bytes = include_bytes!("../../java_example_classfiles/Test.class");
-		let classfile = ClassFile::parse(&mut &bytes[..], None).unwrap();
+		let classfile = ClassFile::parse(&mut &bytes[..]).unwrap();
 		classfile.verify().unwrap();
-
-		assert_eq!(classfile.constant_pool.len(), classfile.constant_pool_count as usize - 1);
-		assert_eq!(classfile.attributes.len(), classfile.attributes_count as usize);
-		assert_eq!(classfile.methods.len(), classfile.methods_count as usize);
-		assert_eq!(classfile.fields.len(), classfile.fields_count as usize);
 
 		let method = classfile.methods.get(1).unwrap();
 		let code = method.get_code().unwrap();
@@ -329,12 +324,9 @@ mod testing {
 		if let AttributeInfo::Code(CodeAttribute {
 			max_stack,
 			max_locals,
-			code_length,
 			code,
-			exception_table_length,
-			exception_table,
-			attributes_count,
-			attributes,
+			exception_table: _,
+			attributes: _,
 			..
 		}) = code {
 			let mut frame = VmStackFrame {
@@ -357,6 +349,8 @@ mod testing {
 			//println!("{}", frame);
 			//frame.run_isn().unwrap();
 			//println!("{}", frame);
+
+			let _ = frame;
 		}
 	}
 
@@ -377,20 +371,18 @@ mod testing {
 
 		let class = vm.get_class(&"Test".into()).unwrap();
 
-		let main = class.methods.iter().find(|m| m.name(class).unwrap() == "main").unwrap();
+		let main = class.methods.iter()
+			.find(|m| m.name.to_string().as_str() == "main")
+			.unwrap();
 
 		let code = main.get_code().unwrap();
 
 		if let AttributeInfo::Code(CodeAttribute {
-			attribute_length: _,
 			max_stack,
 			max_locals,
-			code_length,
 			code,
-			exception_table_length,
-			exception_table,
-			attributes_count,
-			attributes
+			exception_table: _,
+			attributes: _
 		}) = code {
 			let frame = VmStackFrame {
 				program_counter: 0,
@@ -496,6 +488,7 @@ mod testing {
 	#[test]
 	fn test_class_instance() {
 		let mut ci = ClassInstance {
+			class: todo!(),
 			data: Box::new([0; 30]),
 		};
 
@@ -504,6 +497,8 @@ mod testing {
 
 		assert_eq!(ci.get_int(10).unwrap(), 0x05060708);
 		assert_eq!(ci.get_int(14).unwrap(), 0x67FFFFFF);
+
+		let _ = ci;
 	}
 }
 

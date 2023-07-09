@@ -40,7 +40,7 @@ impl CpInfoClass {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassInfo {
-	name: Utf8Info,
+	pub name: Utf8Info,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,8 +66,8 @@ impl CpInfoFieldRef {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FieldRefInfo {
-	class: ClassInfo,
-	name_and_type: NameAndTypeInfo,
+	pub class: ClassInfo,
+	pub name_and_type: NameAndTypeInfo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,8 +93,8 @@ impl CpInfoMethodRef {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MethodRefInfo {
-	class: ClassInfo,
-	name_and_type: NameAndTypeInfo,
+	pub class: ClassInfo,
+	pub name_and_type: NameAndTypeInfo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,15 +237,15 @@ impl CpInfoNameAndType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NameAndTypeInfo {
-	name: Utf8Info,
-	descriptor: Utf8Info,
+	pub name: Utf8Info,
+	pub descriptor: Utf8Info,
 }
 
 #[derive(Clone, PartialEq, Eq)]
 // TODO: make private, still needed because of legacy parsing code
 //  also make the field private
 pub struct CpInfoUtf8 {
-	pub(crate) bytes: Vec<u8>,
+	bytes: Vec<u8>,
 }
 impl CpInfoUtf8 {
 	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
@@ -265,7 +265,7 @@ impl Debug for CpInfoUtf8 {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Utf8Info {
-	bytes: Vec<u8>,
+	pub bytes: Vec<u8>,
 }
 impl From<CpInfoUtf8> for Utf8Info {
 	fn from(value: CpInfoUtf8) -> Self {
@@ -533,10 +533,7 @@ impl ConstantPool {
 		where ClassFileParseError: From<<T as TryFrom<ConstantPoolElement>>::Error>
 	{
 		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic?
-		match self.0.get(index) {
-			Some(item) => Ok(T::try_from(item.clone())?),
-			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
-		}
+		self.get(index)
 	}
 
 	/// Reads an [u16] and interprets it as an index into the constant pool, allowing `0` for [Option::None]. If not zero, reads the constant pool at the given
@@ -549,9 +546,9 @@ impl ConstantPool {
 			return Ok(None);
 		}
 		let index = index - 1;
-		match self.0.get(index) {
-			Some(item) => Ok(Some(T::try_from(item.clone())?)),
-			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
+		match self.get(index) {
+			Ok(item) => Ok(Some(item)),
+			Err(e) => Err(e),
 		}
 	}
 
@@ -560,6 +557,15 @@ impl ConstantPool {
 		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic?
 		match self.0.get(index) {
 			Some(item) => Ok(item),
+			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
+		}
+	}
+
+	pub fn get<T: TryFrom<ConstantPoolElement>>(&self, index: usize) -> Result<T, ClassFileParseError>
+		where ClassFileParseError: From<<T as TryFrom<ConstantPoolElement>>::Error>
+	{
+		match self.0.get(index) {
+			Some(item) => Ok(T::try_from(item.clone())?),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
 		}
 	}

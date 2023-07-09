@@ -50,9 +50,9 @@ impl Debug for JUtf8 {
 	}
 }
 
-impl From<Vec<u8>> for JUtf8 {
-	fn from(value: Vec<u8>) -> Self {
-		Self(value)
+impl From<Utf8Info> for JUtf8 {
+	fn from(value: Utf8Info) -> Self {
+		Self(value.bytes)
 	}
 }
 
@@ -81,11 +81,11 @@ impl PartialEq<&str> for JUtf8 {
 
 
 #[derive(Debug, Clone, PartialEq)]
-struct FieldInfo { // 4.5
-	access_flags: u16,
-	name: Utf8Info,
-	descriptor: Utf8Info,
-	attributes: Vec<AttributeInfo>,
+pub struct FieldInfo { // 4.5
+	pub access_flags: u16,
+	pub name: Utf8Info,
+	pub descriptor: Utf8Info,
+	pub attributes: Vec<AttributeInfo>,
 }
 
 impl FieldInfo {
@@ -104,11 +104,11 @@ impl FieldInfo {
 
 
 #[derive(Debug, Clone, PartialEq)]
-struct MethodInfo { // 4.6
-	access_flags: u16,
-	name: Utf8Info,
-	descriptor: Utf8Info,
-	attributes: Vec<AttributeInfo>,
+pub struct MethodInfo { // 4.6
+	pub access_flags: u16,
+	pub name: Utf8Info,
+	pub descriptor: Utf8Info,
+	pub attributes: Vec<AttributeInfo>,
 }
 
 impl MethodInfo {
@@ -136,20 +136,20 @@ impl MethodInfo {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassFile { // 4.1
-	minor_version: u16,
-	major_version: u16,
-	constant_pool: ConstantPool,
-	access_flags: u16,
-	this_class: ClassInfo,
-	super_class: Option<ClassInfo>,
-	interfaces: Vec<ClassInfo>,
-	fields: Vec<FieldInfo>,
-	methods: Vec<MethodInfo>,
-	attributes: Vec<AttributeInfo>,
+	pub minor_version: u16,
+	pub major_version: u16,
+	pub constant_pool: ConstantPool,
+	pub access_flags: u16,
+	pub this_class: ClassInfo,
+	pub super_class: Option<ClassInfo>,
+	pub interfaces: Vec<ClassInfo>,
+	pub fields: Vec<FieldInfo>,
+	pub methods: Vec<MethodInfo>,
+	pub attributes: Vec<AttributeInfo>,
 }
 
 impl ClassFile {
-	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
+	pub(crate) fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
 		let magic = parse_u4(reader)?;
 		if magic != 0xCAFE_BABE {
 			return Err(ClassFileParseError::InvalidMagic(magic));

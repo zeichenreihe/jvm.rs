@@ -183,6 +183,7 @@ impl Parse for Declaration {
 
 #[proc_macro]
 pub fn declare_jvm_struct(tokens: TokenStream1) -> TokenStream1 {
+	unreachable!("shouldn't be used");
 	let input = parse_macro_input!( tokens as Declaration );
 
 	match input {
