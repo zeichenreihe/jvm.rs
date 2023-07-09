@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use crate::classfile::JUtf8;
@@ -30,8 +31,11 @@ pub enum ClassFileParseError {
 	UnknownVerificationTypeInfoTag(u8),
 	UnknownStackMapFrameType(u8),
 	UnknownAnnotationElementValueTag(u8),
+	UnknownMethodHandleInfoKind(u8),
 
 	WrongConstantPoolTag,
+	InvalidAttributeLength { expected: u32, actual: u32 },
+	InvalidConstantPoolTag(String),
 
 	NoSuchAttribute(&'static str),
 	NoSuchConstantPoolEntry(usize),
@@ -71,6 +75,12 @@ impl From<std::string::FromUtf8Error> for ClassFileParseError {
 impl From<ConstantPoolTagMismatchError> for ClassFileParseError {
 	fn from(_value: ConstantPoolTagMismatchError) -> Self {
 		todo!()
+	}
+}
+
+impl From<Infallible> for ClassFileParseError {
+	fn from(_: Infallible) -> Self {
+		unreachable!()
 	}
 }
 
