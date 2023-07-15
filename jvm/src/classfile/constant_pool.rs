@@ -3,6 +3,9 @@ use std::io::Read;
 use crate::classfile::{parse_u1, parse_u2, parse_u4, parse_vec};
 use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
 
+// note that the types starting with CpInfo are parsed from the reader in the first run
+// then in the second run, they are translated to the *Info types
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CpIndex(u16);
 
@@ -242,9 +245,7 @@ pub struct NameAndTypeInfo {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-// TODO: make private, still needed because of legacy parsing code
-//  also make the field private
-pub struct CpInfoUtf8 {
+struct CpInfoUtf8 {
 	bytes: Vec<u8>,
 }
 impl CpInfoUtf8 {
@@ -376,7 +377,6 @@ pub struct InvokeDynamicInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-// TODO: make private!
 enum CpInfo { // 4.4, Table 4.3
 	Class(CpInfoClass), FieldRef(CpInfoFieldRef), MethodRef(CpInfoMethodRef), InterfaceMethodRef(CpInfoInterfaceMethodRef),
 	String(CpInfoString), Integer(CpInfoInteger), Float(CpInfoFloat), Long(CpInfoLong), Double(CpInfoDouble),
@@ -532,11 +532,11 @@ impl ConstantPool {
 	pub fn parse_index<R: Read, T: TryFrom<ConstantPoolElement>>(&self, reader: &mut R) -> Result<T, ClassFileParseError>
 		where ClassFileParseError: From<<T as TryFrom<ConstantPoolElement>>::Error>
 	{
-		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic?
+		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic? yes I think so
 		self.get(index)
 	}
 
-	/// Reads an [u16] and interprets it as an index into the constant pool, allowing `0` for [Option::None]. If not zero, reads the constant pool at the given
+	/// Reads an [u16] and interprets it as an index into the constant pool, allowing `0` for [None]. If not zero, reads the constant pool at the given
 	/// index and converts the element there into the correct type.
 	pub fn parse_index_optional<R: Read, T: TryFrom<ConstantPoolElement>>(&self, reader: &mut R) -> Result<Option<T>, ClassFileParseError>
 		where ClassFileParseError: From<<T as TryFrom<ConstantPoolElement>>::Error>
@@ -554,13 +554,14 @@ impl ConstantPool {
 
 	/// Reads an [u16] and interprets it as an index into the constant pool. Doesn't try to convert the tag there.
 	pub fn parse_index_get<R: Read>(&self, reader: &mut R) -> Result<&ConstantPoolElement, ClassFileParseError> {
-		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic?
+		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic? yes I think so
 		match self.0.get(index) {
 			Some(item) => Ok(item),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
 		}
 	}
 
+	/// Takes in an [usize] and gives back the corresponding constant pool entry. Tries to convert into it.
 	pub fn get<T: TryFrom<ConstantPoolElement>>(&self, index: usize) -> Result<T, ClassFileParseError>
 		where ClassFileParseError: From<<T as TryFrom<ConstantPoolElement>>::Error>
 	{
