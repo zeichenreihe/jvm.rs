@@ -1,96 +1,23 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Read;
 use std::mem::size_of;
 use std::sync::Arc;
 use crate::classfile::{ClassFile, ConstantPoolElement, FieldRefInfo, JUtf8, MethodRefInfo, Utf8Info};
-use crate::errors::{OutOfBoundsError, RuntimeError};
+use crate::errors::{ClassFileParseError, ClassLoadError, OutOfBoundsError, RuntimeError};
 use crate::opcodes::Opcode;
 
-type JBoolean = bool;//todo!();
-type JByte = i8;
-type JShort = i16;
-type JChar = char;//todo!();
-type JInt = i32;
-type JLong = i64;
-type JFloat = f32;
-type JDouble = f64;
-type JReference = u64; //todo!();
+pub type JBoolean = bool;//todo!();
+pub type JByte = i8;
+pub type JShort = i16;
+pub type JChar = char;//todo!();
+pub type JInt = i32;
+pub type JLong = i64;
+pub type JFloat = f32;
+pub type JDouble = f64;
+pub type JReference = u64; //todo!();
 
-#[derive(PartialEq)]
-struct Field {
-
-}
-
-impl Field {
-	fn get_size(&self) -> usize {
-		todo!()
-	}
-}
-
-struct Class {
-	super_class_size: usize,
-	class: ClassFile,
-	fields: Vec<Field>,
-}
-
-impl Class {
-	fn field_offset(&self) -> Result<usize, ()> {
-		let test = todo!();
-		let mut pos = self.super_class_size;
-		for field in self.fields {
-			if field == test { break; }
-			pos += field.get_size();
-		}
-		Ok(pos)
-	}
-}
-
-/// Represents the memory that contains the fields of a class
-struct ClassInstance<const SIZE: usize> {
-	class: Class,
-	// in memory:
-	// <parent class instance><first field><second field><...><last field>
-	data: Box<[u8; SIZE]>
-}
-
-impl<const SIZE: usize> ClassInstance<SIZE> {
-	/// Returns the whole size of the class instance.
-	pub fn get_size(&self) -> usize {
-		SIZE
-	}
-
-	/// Returns a [JInt] from the class instance.
-	pub fn get_int(&self, offset: usize) -> Result<JInt, OutOfBoundsError> {
-		let slice = self.data
-			.get(offset..).ok_or(OutOfBoundsError)?
-			.get(..size_of::<JInt>()).ok_or(OutOfBoundsError)?
-			.try_into().expect("unreachable: the slice is guaranteed to be 4 in length");
-		Ok(JInt::from_ne_bytes(slice))
-	}
-	/// Stores a [JInt] into the class instance.
-	pub fn put_int(&mut self, offset: usize, int: JInt) -> Result<(), OutOfBoundsError> {
-		let slice = self.data
-			.get_mut(offset..).ok_or(OutOfBoundsError)?
-			.get_mut(..size_of::<JInt>()).ok_or(OutOfBoundsError)?;
-		slice.copy_from_slice(&int.to_ne_bytes());
-		Ok(())
-	}
-
-	pub fn get_reference(&self, offset: usize) -> Result<JReference, ()> {
-		todo!()
-	}
-	pub fn put_reference(&self, offset: usize, reference: JReference) -> Result<(), ()> {
-		todo!()
-	}
-
-	// TODO: more!
-}
-
-/// Stores a [ClassInstance] and a count of references to it
-struct ClassInstanceRefCounted<const SIZE: usize> {
-	class_instance: Arc<ClassInstance<SIZE>>,
-}
 
 #[derive(Debug)]
 struct Vm {
@@ -103,17 +30,17 @@ impl Vm {
 		Vm { classes: HashMap::new(), stack: VmStack { frames: Vec::new() }}
 	}
 
-	fn try_add_class<R: Read>(&mut self, mut reader: R) -> Result<(), RuntimeError> {
+	fn try_add_class<R: Read>(&mut self, mut reader: R) -> Result<(), ClassLoadError> {
 		let classfile = ClassFile::parse(&mut reader)?;
 
 		match self.classes.insert(classfile.this_class.name.clone().into(), classfile) {
-			Some(class) => Err(RuntimeError::ClassAlreadyLoaded(class.this_class.name.into())),
+			Some(class) => Err(ClassLoadError::ClassAlreadyLoaded(class.this_class.name.into())),
 			None => Ok(()),
 		}
 	}
 
-	fn get_class(&self, name: &JUtf8) -> Result<&ClassFile, RuntimeError> {
-		self.classes.get(name).ok_or_else(|| RuntimeError::NoClassDefFound(name.to_owned()))
+	fn get_class(&self, name: &JUtf8) -> Result<&ClassFile, ClassLoadError> {
+		self.classes.get(name).ok_or_else(|| ClassLoadError::NoClassDefFound(name.to_owned()))
 	}
 }
 
@@ -308,7 +235,7 @@ mod testing {
 	use inkwell::module::Linkage;
 	use zip::ZipArchive;
 	use crate::classfile::{AttributeInfo, ClassFile, CodeAttribute};
-	use crate::executor::{ClassInstance, Vm};
+	use crate::executor::Vm;
 	use super::VmStackFrame;
 
 	#[test]
@@ -484,11 +411,11 @@ mod testing {
 		assert_eq!(sum, x * y * z);
 	}
 
-
+/*
 	#[test]
 	fn test_class_instance() {
 		let mut ci = ClassInstance {
-			class: todo!(),
+			class: ,//todo!(),
 			data: Box::new([0; 30]),
 		};
 
@@ -499,6 +426,6 @@ mod testing {
 		assert_eq!(ci.get_int(14).unwrap(), 0x67FFFFFF);
 
 		let _ = ci;
-	}
+	}*/
 }
 

@@ -5,3 +5,5 @@ pub mod executor;
 pub mod opcodes;
 
 pub mod errors;
+pub mod class_loader;
+pub mod class_instance;

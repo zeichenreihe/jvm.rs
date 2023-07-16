@@ -149,7 +149,7 @@ pub struct ClassFile { // 4.1
 }
 
 impl ClassFile {
-	pub(crate) fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
+	pub fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
 		let magic = parse_u4(reader)?;
 		if magic != 0xCAFE_BABE {
 			return Err(ClassFileParseError::InvalidMagic(magic));

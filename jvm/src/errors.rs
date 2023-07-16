@@ -84,20 +84,35 @@ impl From<Infallible> for ClassFileParseError {
 	}
 }
 
+
+#[derive(Debug)]
+pub enum ClassLoadError {
+	ParseError(ClassFileParseError),
+	NoSuchClassDef(String),
+
+	ClassAlreadyLoaded(JUtf8),
+	NoClassDefFound(JUtf8),
+}
+
+impl From<ClassFileParseError> for ClassLoadError {
+	fn from(value: ClassFileParseError) -> Self {
+		Self::ParseError(value)
+	}
+}
+
+
 #[derive(Debug)]
 pub enum RuntimeError {
-	NoClassDefFound(JUtf8),
-	ClassLoad(ClassFileParseError),
-	ClassAlreadyLoaded(JUtf8),
+	ClassLoad(ClassLoadError),
 	OutOfBounds(OutOfBoundsError),
 }
 
 impl Display for RuntimeError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Self::NoClassDefFound(jutf8) => write!(f, "no class found: {jutf8:?}"),
+			//Self::NoClassDefFound(jutf8) => write!(f, "no class found: {jutf8:?}"),
 			Self::ClassLoad(e) => write!(f, "while loading a class: {e:?}"),
-			Self::ClassAlreadyLoaded(jutf8) => write!(f, "class already loaded: {jutf8:?}"),
+			//Self::ClassAlreadyLoaded(jutf8) => write!(f, "class already loaded: {jutf8:?}"),
 			Self::OutOfBounds(e) => write!(f, "out of bounds: {e:?}"),
 		}
 	}
@@ -105,9 +120,15 @@ impl Display for RuntimeError {
 
 impl Error for RuntimeError {}
 
+impl From<ClassLoadError> for RuntimeError {
+	fn from(value: ClassLoadError) -> Self {
+		Self::ClassLoad(value)
+	}
+}
+
 impl From<ClassFileParseError> for RuntimeError {
 	fn from(value: ClassFileParseError) -> Self {
-		Self::ClassLoad(value)
+		Self::ClassLoad(ClassLoadError::ParseError(value))
 	}
 }
 
