@@ -41,45 +41,6 @@ fn parse_vec<T, R: Read, E, SIZE, ELEMENT>(reader: &mut R, size: SIZE, element: 
 	Ok(vec)
 }
 
-#[derive(PartialEq, Eq, Hash, Clone)]
-pub struct JUtf8(pub Vec<u8>);
-
-impl Debug for JUtf8 {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "Utf8 {{ \"{}\" }}", String::from_utf8_lossy(&self.0))
-	}
-}
-
-impl From<Utf8Info> for JUtf8 {
-	fn from(value: Utf8Info) -> Self {
-		Self(value.bytes)
-	}
-}
-
-impl From<&str> for JUtf8 {
-	fn from(value: &str) -> Self {
-		Self ( value.as_bytes().into() )
-	}
-}
-
-impl JUtf8 {
-	pub fn to_vec(&self) -> Vec<u8> {
-		self.0.clone()
-	}
-}
-
-impl PartialEq<str> for JUtf8 {
-	fn eq(&self, other: &str) -> bool {
-		self.0.eq(other.as_bytes())
-	}
-}
-impl PartialEq<&str> for JUtf8 {
-	fn eq(&self, other: &&str) -> bool {
-		self.0.eq(other.as_bytes())
-	}
-}
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldInfo { // 4.5
 	pub access_flags: u16,

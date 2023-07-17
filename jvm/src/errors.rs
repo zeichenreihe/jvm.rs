@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use crate::classfile::{ClassInfo, JUtf8};
+use crate::classfile::ClassInfo;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct OutOfBoundsError;
@@ -105,8 +105,6 @@ pub enum ClassLoadError {
 	IncompatibleClassChangeError(),
 	ClassCircularityError(),
 	VerifyError(),
-
-	ClassAlreadyLoaded(JUtf8),
 }
 /*
 impl From<ClassFileParseError> for ClassLoadError {
