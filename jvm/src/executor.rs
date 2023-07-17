@@ -146,7 +146,6 @@ impl VmStackFrame {
 				},
 				Opcode::InvokeSpecial => {
 					let index = self.read_constant_pool_two_indexes()?;
-
 					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
 					let class = method_ref.class;
@@ -168,7 +167,6 @@ impl VmStackFrame {
 				},
 				Opcode::InvokeVirtual => {
 					let index = self.read_constant_pool_two_indexes()?;
-
 					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
 					let class = method_ref.class;
@@ -198,7 +196,6 @@ impl VmStackFrame {
 				},
 				Opcode::InvokeStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
-
 					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
 					let class = method_ref.class;
