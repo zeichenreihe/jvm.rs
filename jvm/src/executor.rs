@@ -1,11 +1,8 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::io::Read;
-use std::mem::size_of;
-use std::sync::Arc;
-use crate::classfile::{ClassFile, ConstantPoolElement, FieldRefInfo, JUtf8, MethodRefInfo, Utf8Info};
-use crate::errors::{ClassFileParseError, ClassLoadError, OutOfBoundsError, RuntimeError};
+use crate::class_instance::Class;
+use crate::class_loader::ClassLoader;
+use crate::classfile::{ClassInfo, ConstantPoolElement, FieldRefInfo, MethodRefInfo};
+use crate::errors::{OutOfBoundsError, RuntimeError};
 use crate::opcodes::Opcode;
 
 pub type JBoolean = bool;//todo!();
@@ -219,12 +216,14 @@ impl VmStackFrame {
 #[cfg(test)]
 mod testing {
 	use std::fs::File;
-	use std::io::BufReader;
+	use std::io::{BufReader, Read};
 	use std::sync::atomic::AtomicUsize;
 	use std::sync::atomic::Ordering::Relaxed;
 	use inkwell::module::Linkage;
 	use zip::ZipArchive;
-	use crate::classfile::{AttributeInfo, ClassFile, CodeAttribute};
+	use crate::class_instance::{Class, Field};
+	use crate::class_loader::ClassesSource;
+	use crate::classfile::{AttributeInfo, ClassFile, ClassInfo, CodeAttribute};
 	use crate::executor::Vm;
 	use super::VmStackFrame;
 
@@ -232,10 +231,10 @@ mod testing {
 	#[cfg(target_os = "linux")]
 	fn test_run_isn_from_real_class_file() {
 		let bytes = include_bytes!("../../java_example_classfiles/Test.class");
-		let classfile = ClassFile::parse(&mut &bytes[..]).unwrap();
-		classfile.verify().unwrap();
+		let class_file = ClassFile::parse(&mut &bytes[..]).unwrap();
+		class_file.verify().unwrap();
 
-		let method = classfile.methods.get(1).unwrap();
+		let method = class_file.methods.get(1).unwrap();
 		let code = method.get_code().unwrap();
 
 		if let AttributeInfo::Code(CodeAttribute {
@@ -260,15 +259,29 @@ mod testing {
 					for _ in 0..(*max_stack as usize) { vec.push(0) }
 					vec
 				},
-				class: classfile.clone(),
+				class: Class {
+					super_class_size: 0,
+					class: class_file.clone(),
+					fields: class_file.fields.iter()
+						.map(|f| {
+							Field { }
+						})
+						.collect(),
+				},
 			};
 
-			//println!("{}", frame);
-			//frame.run_isn().unwrap();
-			//println!("{}", frame);
+			println!("{}", frame);
+			frame.run_isn().unwrap();
+			println!("{}", frame);
 
 			let _ = frame;
 		}
+	}
+
+	fn read_as_vec<R: Read>(mut reader: R) -> Vec<u8> {
+		let mut vec = Vec::new();
+		reader.read_to_end(&mut vec).unwrap();
+		vec
 	}
 
 	#[test]
@@ -279,14 +292,28 @@ mod testing {
 
 		let mut vm = Vm::new();
 
-		vm.try_add_class(rt.by_name("java/lang/Object.class").unwrap()).unwrap();
+		vm.loader.sources.push(
+			ClassesSource::Bytes {
+				name: String::from("java/lang/Object"),
+				bytes: read_as_vec(rt.by_name("java/lang/Object.class").unwrap()),
+			},
+		);
 
-		vm.try_add_class(rt.by_name("java/lang/System.class").unwrap()).unwrap();
+		vm.loader.sources.push(
+			ClassesSource::Bytes {
+				name: String::from("java/lang/System"),
+				bytes: read_as_vec(rt.by_name("java/lang/System.class").unwrap())
+			},
+		);
 
-		let bytes = include_bytes!("../../java_example_classfiles/Test.class");
-		vm.try_add_class(&bytes[..]).unwrap();
+		vm.loader.sources.push(
+			ClassesSource::Bytes {
+				name: String::from("Test"),
+				bytes: include_bytes!("../../java_example_classfiles/Test.class").to_vec(),
+			},
+		);
 
-		let class = vm.get_class(&"Test".into()).unwrap();
+		let class = vm.loader.get(&ClassInfo::from("Test")).unwrap();
 
 		let main = class.class.methods.iter()
 			.find(|m| m.name.to_string().as_str() == "main")
