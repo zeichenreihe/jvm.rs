@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::io::Read;
 use crate::classfile::{parse_u1, parse_u2, parse_u4, parse_vec};
 use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
@@ -16,7 +16,11 @@ macro_rules! try_from_enum_impl {
 			fn try_from(value: $enum_type) -> Result<Self, Self::Error> {
 				match value {
 					$pattern(value) => Ok(value),
-					_ => Err(Self::Error {})
+					v => Err(Self::Error {
+						expected: stringify!($pattern).to_string(),
+						actual: format!("{:?}", v),
+						msg: "".to_string(),
+					}),
 				}
 			}
 		}

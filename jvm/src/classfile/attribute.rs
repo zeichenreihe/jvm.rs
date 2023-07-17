@@ -1,6 +1,6 @@
 use std::io::Read;
 use crate::classfile::{ClassInfo, ConstantPool, ConstantPoolElement, DoubleInfo, FloatInfo, IntegerInfo, LongInfo, MethodHandleInfo, MethodTypeInfo, NameAndTypeInfo, parse_u1, parse_u2, parse_u4, parse_vec, StringInfo, Utf8Info};
-use crate::errors::ClassFileParseError;
+use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
 
 fn check_attribute_length<R: Read>(reader: &mut R, length: u32) -> Result<(), ClassFileParseError> {
 	let len = parse_u4(reader)?;
@@ -32,7 +32,11 @@ impl ConstantValueAttribute {
 			ConstantPoolElement::Double(double) => Ok(ConstantValueAttribute::Double(double.clone())),
 			ConstantPoolElement::Integer(integer) => Ok(ConstantValueAttribute::Integer(integer.clone())),
 			ConstantPoolElement::String(string) => Ok(ConstantValueAttribute::String(string.clone())),
-			tag => Err(ClassFileParseError::InvalidConstantPoolTag(format!("Expected Long/Float/Double/Integer, got {tag:?}"))),
+			tag => Err(ClassFileParseError::InvalidConstantPoolTag(ConstantPoolTagMismatchError {
+				expected: "Long/Float/Double/Integer".to_string(),
+				actual: format!("{tag:?}"),
+				msg: "".to_string(),
+			})),
 		}
 	}
 }
@@ -658,7 +662,11 @@ impl BootstrapMethodArgument {
 			ConstantPoolElement::Double(double) => Ok(Self::Double(double.clone())),
 			ConstantPoolElement::MethodHandle(method_handle) => Ok(Self::MethodHandle(method_handle.clone())),
 			ConstantPoolElement::MethodType(method_type) => Ok(Self::MethodType(method_type.clone())),
-			tag => Err(ClassFileParseError::InvalidConstantPoolTag(format!("Expected Long/Float/Double/Integer, got {tag:?}"))),
+			tag => Err(ClassFileParseError::InvalidConstantPoolTag(ConstantPoolTagMismatchError {
+				expected: "Long/Float/Double/Integer".to_string(),
+				actual: format!("{tag:?}"),
+				msg: "".to_string(),
+			})),
 		}
 	}
 }

@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use crate::classfile::JUtf8;
+use crate::classfile::{ClassInfo, JUtf8};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct OutOfBoundsError;
@@ -14,12 +14,21 @@ impl Display for OutOfBoundsError {
 
 impl Error for OutOfBoundsError {}
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct ConstantPoolTagMismatchError;
+#[derive(Clone, PartialEq)]
+pub struct ConstantPoolTagMismatchError {
+	pub expected: String,
+	pub actual: String,
+	pub msg: String,
+}
 
 impl Display for ConstantPoolTagMismatchError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.write_str("constant pool tag not defined")
+		write!(f, "ConstantPoolTagMismatchError {{ expected: {}, actual: {} }}", self.expected, self.actual)
+	}
+}
+impl Debug for ConstantPoolTagMismatchError {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "ConstantPoolTagMismatchError {{ expected: {}, actual: {} }}", self.expected, self.actual)
 	}
 }
 
@@ -35,7 +44,7 @@ pub enum ClassFileParseError {
 
 	WrongConstantPoolTag,
 	InvalidAttributeLength { expected: u32, actual: u32 },
-	InvalidConstantPoolTag(String),
+	InvalidConstantPoolTag(ConstantPoolTagMismatchError),
 
 	NoSuchAttribute(&'static str),
 	NoSuchConstantPoolEntry(usize),
@@ -73,8 +82,8 @@ impl From<std::string::FromUtf8Error> for ClassFileParseError {
 }
 
 impl From<ConstantPoolTagMismatchError> for ClassFileParseError {
-	fn from(_value: ConstantPoolTagMismatchError) -> Self {
-		todo!()
+	fn from(value: ConstantPoolTagMismatchError) -> Self {
+		ClassFileParseError::InvalidConstantPoolTag(value)
 	}
 }
 
@@ -88,17 +97,23 @@ impl From<Infallible> for ClassFileParseError {
 #[derive(Debug)]
 pub enum ClassLoadError {
 	ParseError(ClassFileParseError),
-	NoSuchClassDef(String),
+
+	NoClassDefFoundError(ClassInfo),
+	LinkageError(),
+	ClassFormatError(),
+	/* subclass */ UnsupportedClassVersionError(),
+	IncompatibleClassChangeError(),
+	ClassCircularityError(),
+	VerifyError(),
 
 	ClassAlreadyLoaded(JUtf8),
-	NoClassDefFound(JUtf8),
 }
-
+/*
 impl From<ClassFileParseError> for ClassLoadError {
 	fn from(value: ClassFileParseError) -> Self {
 		Self::ParseError(value)
 	}
-}
+}*/
 
 
 #[derive(Debug)]
