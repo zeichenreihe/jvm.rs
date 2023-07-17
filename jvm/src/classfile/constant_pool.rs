@@ -233,7 +233,7 @@ impl CpInfoNameAndType {
 	fn pool(&self, pool: &CpInfoVec) -> Result<NameAndTypeInfo, ClassFileParseError> {
 		Ok(NameAndTypeInfo {
 			name: pool.get::<CpInfoUtf8>(&self.name_index)?.into(),
-			descriptor: pool.get::<CpInfoUtf8>(&self.name_index)?.into(),
+			descriptor: pool.get::<CpInfoUtf8>(&self.descriptor_index)?.into(),
 		})
 	}
 }

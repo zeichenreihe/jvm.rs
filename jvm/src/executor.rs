@@ -129,7 +129,7 @@ impl VmStackFrame {
 				},
 				Opcode::New => {
 					let index = self.read_constant_pool_two_indexes()?;
-					let name: Utf8Info = self.class.constant_pool.get(index)?;
+					let name: ClassInfo = self.class.class.constant_pool.get(index)?;
 
 					println!("{name:?}");
 					self.push_stack(234)?;
