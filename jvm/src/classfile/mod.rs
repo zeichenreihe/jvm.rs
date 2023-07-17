@@ -63,35 +63,119 @@ impl FieldInfo {
 	}
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodInfoAccess {
+	pub is_public: bool,
+	pub is_private: bool,
+	pub is_protected: bool,
+	pub is_static: bool,
+	pub is_final: bool,
+	pub is_synchronised: bool,
+	pub is_bridge: bool,
+	pub is_varargs: bool,
+	pub is_native: bool,
+	pub is_abstract: bool,
+	pub is_strict: bool,
+	pub is_synthetic: bool,
+}
+
+impl MethodInfoAccess {
+	fn parse(access_flags: u16) -> Result<Self, ClassFileParseError> {
+		let is_public       = access_flags & 0x0001 != 0;
+		let is_private      = access_flags & 0x0002 != 0;
+		let is_protected    = access_flags & 0x0004 != 0;
+		let is_static       = access_flags & 0x0008 != 0;
+		let is_final        = access_flags & 0x0010 != 0;
+		let is_synchronised = access_flags & 0x0020 != 0;
+		let is_bridge       = access_flags & 0x0040 != 0;
+		let is_varargs      = access_flags & 0x0080 != 0;
+		let is_native       = access_flags & 0x0100 != 0;
+		let is_abstract     = access_flags & 0x0400 != 0;
+		let is_strict       = access_flags & 0x0800 != 0;
+		let is_synthetic    = access_flags & 0x1000 != 0;
+		// other bits: reserved for future use
+
+		// at most one of: is_public, is_private, is_protected!
+
+		if is_abstract {
+			// must not have: is_final, is_native, is_private, is_static, is_strict, is_synchronised
+		}
+
+		let is_interface_method = false;
+		if is_interface_method {
+			// must have: is_abstract, is_public
+			// may have: is_bridge, is_varargs, is_synthetic
+			// -> must not have: (is_private, is_protected), is_static, is_final, is_synchronised, is_native, is_strict
+		}
+
+		let is_specific_instance_initialisation_method = false;
+		if is_specific_instance_initialisation_method {
+			// at most one of: public, private, protected
+			// may have: is_varargs, is_strict, is_synthetic
+			// -> must not have: is_static, is_final, is_synchronised, is_bridge, is_native, is_abstract
+		}
+
+		// class and interface initialisation methods: don't check any of this
+
+		Ok(MethodInfoAccess {
+			is_public, is_private, is_protected, is_static, is_final, is_synchronised, is_bridge, is_varargs, is_native, is_abstract, is_strict, is_synthetic
+		})
+	}
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodInfo { // 4.6
-	pub access_flags: u16,
+	pub access_flags: MethodInfoAccess,
 	pub name: Utf8Info,
 	pub descriptor: Utf8Info,
 	pub attributes: Vec<AttributeInfo>,
+	pub code: Option<CodeAttribute>,
 }
 
 impl MethodInfo {
 	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
-		Ok(MethodInfo {
-			access_flags: parse_u2(reader)?,
-			name: constant_pool.parse_index(reader)?,
-			descriptor: constant_pool.parse_index(reader)?,
-			attributes: parse_vec(reader,
-			  |r| Ok(parse_u2(r)? as usize),
-			  |r| AttributeInfo::parse(r, constant_pool)
-			)?
-		})
-	}
+		let access_flags = MethodInfoAccess::parse(parse_u2(reader)?)?;
+		let name = constant_pool.parse_index(reader)?;
+		let descriptor = constant_pool.parse_index(reader)?;
+		let attributes = parse_vec(reader,
+		   |r| Ok(parse_u2(r)? as usize),
+		   |r| AttributeInfo::parse(r, constant_pool)
+		)?;
 
-	pub fn get_code(&self) -> Result<&AttributeInfo, ClassFileParseError> {
-		for attribute in &self.attributes {
-			if matches!(attribute, AttributeInfo::Code(_)) {
-				return Ok(attribute);
+		let (code_iter, attributes): (Vec<Option<CodeAttribute>>, Vec<Option<AttributeInfo>>) = attributes.into_iter()
+			.map(|attribute| {
+				match attribute {
+					AttributeInfo::Code(code) => (Some(code), None),
+					attribute => (None, Some(attribute)),
+				}
+			})
+			.unzip();
+		let code: Vec<CodeAttribute> = code_iter.into_iter().filter_map(|x| x).collect();
+		let attributes: Vec<AttributeInfo> = attributes.into_iter().filter_map(|x| x).collect();
+
+		let code = if access_flags.is_native | access_flags.is_abstract {
+			if code.len() != 0 {
+				// ERR: found a code attribute when none was expected as of spec
+				panic!("Found code, when code wasn't expected {code:?}");
 			}
-		}
-		Err(ClassFileParseError::NoSuchAttribute("`Code` attribute not found."))
+			None
+		} else {
+			if code.len() > 1 {
+				panic!("found multiple code attributes!");
+			}
+			if code.len() == 0 {
+				panic!("found no code attribute");
+			}
+			Some(code.into_iter().next().unwrap())
+		};
+
+		Ok(MethodInfo {
+			access_flags,
+			name,
+			descriptor,
+			attributes,
+			code,
+		})
 	}
 }
 
@@ -165,13 +249,13 @@ mod testing {
 	#[test]
 	fn try_parse_classfile() {
 		let bytes = include_bytes!("../../../java_example_classfiles/Test.class");
-		let classfile = ClassFile::parse(&mut &bytes[..]).unwrap();
-		classfile.verify().unwrap();
+		let class_file = ClassFile::parse(&mut &bytes[..]).unwrap();
+		class_file.verify().unwrap();
 
-		println!("{:#?}", classfile);
+		println!("{:#?}", class_file);
 
-		for method in classfile.methods {
-			println!("method: {:#?}", method.get_code());
+		for method in class_file.methods {
+			println!("method: {:#?}", method.code);
 		}
 	}
 

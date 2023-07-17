@@ -1,9 +1,25 @@
 use std::fmt::{Display, Formatter};
+use std::mem;
 use crate::class_instance::Class;
 use crate::class_loader::ClassLoader;
 use crate::classfile::{ClassInfo, ConstantPoolElement, FieldRefInfo, MethodRefInfo};
 use crate::errors::{OutOfBoundsError, RuntimeError};
 use crate::opcodes::Opcode;
+
+#[derive(Debug, Clone, Copy)]
+pub enum StackFrameLvType {
+	Empty,
+	Boolean(JBoolean), Byte(JByte), Short(JShort), Char(JChar), Int(JInt), Long(JLong), Float(JFloat), Double(JDouble), Reference(JReference)
+}
+impl StackFrameLvType {
+	fn try_as_int(&self) -> Result<JInt, RuntimeError> {
+		if let Self::Int(int) = self {
+			Ok(int.clone())
+		} else {
+			Err(RuntimeError::TypeMismatch)
+		}
+	}
+}
 
 pub type JBoolean = bool;//todo!();
 pub type JByte = i8;
@@ -38,8 +54,8 @@ struct VmStack {
 
 #[derive(Debug)]
 struct VmStackFrame {
-	local_variables: Vec<u32>,
-	operand_stack: Vec<u32>,
+	local_variables: Vec<StackFrameLvType>,
+	operand_stack: Vec<StackFrameLvType>,
 	stack_pointer: usize,
 
 	program_counter: usize,
@@ -54,7 +70,7 @@ impl Display for VmStackFrame {
 }
 
 impl VmStackFrame {
-	fn push_stack(&mut self, value: u32) -> Result<(), OutOfBoundsError> {
+	fn push_stack(&mut self, value: StackFrameLvType) -> Result<(), OutOfBoundsError> {
 		*self.operand_stack
 			.get_mut(self.stack_pointer)
 			.ok_or(OutOfBoundsError)? = value;
@@ -62,12 +78,14 @@ impl VmStackFrame {
 		Ok(())
 	}
 
-	fn pop_stack(&mut self) -> Result<u32, OutOfBoundsError> {
+	fn pop_stack(&mut self) -> Result<StackFrameLvType, OutOfBoundsError> {
 		self.stack_pointer -= 1;
-		self.operand_stack
-			.get(self.stack_pointer)
-			.ok_or(OutOfBoundsError)
-			.map(|i| *i)
+		Ok(mem::replace(
+			self.operand_stack
+				.get_mut(self.stack_pointer)
+				.ok_or(OutOfBoundsError)?,
+			StackFrameLvType::Empty
+		))
 	}
 
 	fn read_isn(&mut self) -> Result<u8, OutOfBoundsError> {
@@ -93,14 +111,14 @@ impl VmStackFrame {
 
 			// TODO: make this actually allocate memory
 			match opcode {
-				Opcode::IConst0 => self.push_stack(0)?,
-				Opcode::IConst1 => self.push_stack(1)?,
-				Opcode::IConst2 => self.push_stack(2)?,
-				Opcode::IConst3 => self.push_stack(3)?,
+				Opcode::IConst0 => self.push_stack(StackFrameLvType::Int(0))?,
+				Opcode::IConst1 => self.push_stack(StackFrameLvType::Int(1))?,
+				Opcode::IConst2 => self.push_stack(StackFrameLvType::Int(2))?,
+				Opcode::IConst3 => self.push_stack(StackFrameLvType::Int(3))?,
 				Opcode::IAdd => {
-					let a = self.pop_stack()?;
-					let b = self.pop_stack()?;
-					self.push_stack(a + b)?
+					let a = self.pop_stack()?.try_as_int()?;
+					let b = self.pop_stack()?.try_as_int()?;
+					self.push_stack(StackFrameLvType::Int(a + b))?
 				},
 				Opcode::GetStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
@@ -112,14 +130,14 @@ impl VmStackFrame {
 
 					println!("{class}, {name}, {desc}");
 
-					self.push_stack(2223)?;
+					self.push_stack(StackFrameLvType::Reference(2223))?;
 				},
 				Opcode::New => {
 					let index = self.read_constant_pool_two_indexes()?;
 					let name: ClassInfo = self.class.class.constant_pool.get(index)?;
 
 					println!("{name:?}");
-					self.push_stack(234)?;
+					self.push_stack(StackFrameLvType::Reference(234))?;
 				},
 				Opcode::Dup => {
 					let value = self.pop_stack()?;
@@ -146,7 +164,7 @@ impl VmStackFrame {
 					let index = self.read_isn()? as usize;
 					let item: ConstantPoolElement = self.class.class.constant_pool.get(index)?;
 					println!("{item:?}");
-					self.push_stack(3444)?;
+					self.push_stack(StackFrameLvType::Reference(3444))?;
 				},
 				Opcode::InvokeVirtual => {
 					let index = self.read_constant_pool_two_indexes()?;
@@ -163,12 +181,12 @@ impl VmStackFrame {
 					if desc == "(Ljava/lang/String;)Ljava/lang/StringBuilder;" {
 						self.pop_stack()?;
 						let this = self.pop_stack()?;
-						self.push_stack(this)?;
+						self.push_stack(StackFrameLvType::Reference(290598025))?;
 					}
 
 					if desc == "()Ljava/lang/String;" {
 						let this = self.pop_stack()?;
-						self.push_stack(this / 2)?;
+						self.push_stack(StackFrameLvType::Reference(890225890))?;
 					}
 
 					if desc == "(Ljava/lang/String;)V" {
@@ -176,7 +194,7 @@ impl VmStackFrame {
 					}
 				},
 				Opcode::ALoad0 => {
-					self.push_stack(444444)?;
+					self.push_stack(StackFrameLvType::Reference(444444))?;
 				},
 				Opcode::InvokeStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
@@ -192,7 +210,7 @@ impl VmStackFrame {
 					let desc = desc.to_string();
 					if desc == "([Ljava/lang/Object;)Ljava/lang/String;" {
 						let value = self.pop_stack()?;
-						self.push_stack(value + 100000)?;
+						self.push_stack(StackFrameLvType::Reference(2235890))?;
 					}
 				},
 				Opcode::Return => {
@@ -224,7 +242,7 @@ mod testing {
 	use crate::class_instance::{Class, Field};
 	use crate::class_loader::ClassesSource;
 	use crate::classfile::{AttributeInfo, ClassFile, ClassInfo, CodeAttribute};
-	use crate::executor::Vm;
+	use crate::executor::{StackFrameLvType, Vm};
 	use super::VmStackFrame;
 
 	#[test]
@@ -235,47 +253,38 @@ mod testing {
 		class_file.verify().unwrap();
 
 		let method = class_file.methods.get(1).unwrap();
-		let code = method.get_code().unwrap();
+		let code = method.code.as_ref().unwrap();
 
-		if let AttributeInfo::Code(CodeAttribute {
-			max_stack,
-			max_locals,
-			code,
-			exception_table: _,
-			attributes: _,
-			..
-		}) = code {
-			let mut frame = VmStackFrame {
-				program_counter: 0,
-				stack_pointer: 0,
-				code: code.to_owned(),
-				local_variables: {
-					let mut vec = Vec::with_capacity(*max_locals as usize);
-					for _ in 0..(*max_locals as usize) { vec.push(0) }
-					vec
-				},
-				operand_stack: {
-					let mut vec = Vec::with_capacity(*max_stack as usize);
-					for _ in 0..(*max_stack as usize) { vec.push(0) }
-					vec
-				},
-				class: Class {
-					super_class_size: 0,
-					class: class_file.clone(),
-					fields: class_file.fields.iter()
-						.map(|f| {
-							Field { }
-						})
-						.collect(),
-				},
-			};
+		let mut frame = VmStackFrame {
+			program_counter: 0,
+			stack_pointer: 0,
+			code: code.code.to_owned(),
+			local_variables: {
+				let mut vec = Vec::with_capacity(code.max_locals as usize);
+				for _ in 0..(code.max_locals as usize) { vec.push(StackFrameLvType::Empty) }
+				vec
+			},
+			operand_stack: {
+				let mut vec = Vec::with_capacity(code.max_stack as usize);
+				for _ in 0..(code.max_stack as usize) { vec.push(StackFrameLvType::Empty) }
+				vec
+			},
+			class: Class {
+				super_class_size: 0,
+				class: class_file.clone(),
+				fields: class_file.fields.iter()
+					.map(|f| {
+						Field { }
+					})
+					.collect(),
+			},
+		};
 
-			println!("{}", frame);
-			frame.run_isn().unwrap();
-			println!("{}", frame);
+		println!("{}", frame);
+		frame.run_isn().unwrap();
+		println!("{}", frame);
 
-			let _ = frame;
-		}
+		let _ = frame;
 	}
 
 	fn read_as_vec<R: Read>(mut reader: R) -> Vec<u8> {
@@ -319,37 +328,32 @@ mod testing {
 			.find(|m| m.name.to_string().as_str() == "main")
 			.unwrap();
 
-		let code = main.get_code().unwrap();
+		let code = main.code.as_ref().unwrap();
+		let stack_map_frame = &code.stack_map_table;
 
-		if let AttributeInfo::Code(CodeAttribute {
-			max_stack,
-			max_locals,
-			code,
-			exception_table: _,
-			attributes: _
-		}) = code {
-			let frame = VmStackFrame {
-				program_counter: 0,
-				stack_pointer: 0,
-				code: code.to_owned(),
-				local_variables: {
-					let mut vec = Vec::with_capacity(*max_locals as usize);
-					for _ in 0..(*max_locals as usize) { vec.push(0) }
-					vec
-				},
-				operand_stack: {
-					let mut vec = Vec::with_capacity(*max_stack as usize);
-					for _ in 0..(*max_stack as usize) { vec.push(0) }
-					vec
-				},
-				class: class.clone(),
-			};
+		dbg!(stack_map_frame);
+
+		let frame = VmStackFrame {
+			program_counter: 0,
+			stack_pointer: 0,
+			code: code.code.to_owned(),
+			local_variables: {
+				let mut vec = Vec::with_capacity(code.max_locals as usize);
+				for _ in 0..(code.max_locals as usize) { vec.push(StackFrameLvType::Empty) }
+				vec
+			},
+			operand_stack: {
+				let mut vec = Vec::with_capacity(code.max_stack as usize);
+				for _ in 0..(code.max_stack as usize) { vec.push(StackFrameLvType::Empty) }
+				vec
+			},
+			class: class.clone(),
+		};
 
 
-			vm.stack.frames.push(frame);
+		vm.stack.frames.push(frame);
 
-			vm.stack.frames.last_mut().unwrap().run_isn().unwrap();
-		}
+		vm.stack.frames.last_mut().unwrap().run_isn().unwrap();
 	}
 
 	#[test]

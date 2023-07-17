@@ -48,28 +48,49 @@ pub struct CodeAttribute { // 4.7.3
 	pub code: Vec<u8>,
 	pub exception_table: Vec<ExceptionTableEntry>,
 	pub attributes: Vec<AttributeInfo>,
+	pub stack_map_table: StackMapTableAttribute,
 }
 
 impl CodeAttribute {
 	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<CodeAttribute, ClassFileParseError> {
 		let _attribute_length = parse_u4(reader)?;
 
-		Ok(CodeAttribute {
-			max_stack: parse_u2(reader)?,
-			max_locals: parse_u2(reader)?,
+		let max_stack = parse_u2(reader)?;
+		let max_locals = parse_u2(reader)?;
 
-			code: parse_vec(reader,
-				|r| Ok(parse_u4(r)? as usize),
-				|r| parse_u1(r)
-			)?,
-			exception_table: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
-				|r| ExceptionTableEntry::parse(r, constant_pool)
-			)?,
-			attributes: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
-				|r| AttributeInfo::parse(r, constant_pool)
-			)?,
+		let code = parse_vec(reader,
+			|r| Ok(parse_u4(r)? as usize),
+			|r| parse_u1(r)
+		)?;
+
+		let exception_table = parse_vec(reader,
+			|r| Ok(parse_u2(r)? as usize),
+			|r|  ExceptionTableEntry::parse(r, constant_pool)
+		)?;
+
+		let mut attributes = parse_vec(reader,
+		   |r| Ok(parse_u2(r)? as usize),
+		   |r| AttributeInfo::parse(r, constant_pool)
+		)?;
+
+		let stack_map_table = attributes.iter()
+			.find_map(|a| match a {
+				AttributeInfo::StackMapTable(s) => Some(s.clone()),
+				_ => None,
+			})
+			.unwrap_or_else(|| StackMapTableAttribute {
+				entries: Vec::new()
+			});
+
+		attributes.retain(|a| !matches!(a, AttributeInfo::StackMapTable(_)));
+
+		Ok(CodeAttribute {
+			max_stack,
+			max_locals,
+			code,
+			exception_table,
+			attributes,
+			stack_map_table,
 		})
 	}
 }

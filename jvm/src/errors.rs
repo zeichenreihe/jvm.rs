@@ -118,6 +118,7 @@ impl From<ClassFileParseError> for ClassLoadError {
 pub enum RuntimeError {
 	ClassLoad(ClassLoadError),
 	OutOfBounds(OutOfBoundsError),
+	TypeMismatch,
 }
 
 impl Display for RuntimeError {
@@ -127,6 +128,7 @@ impl Display for RuntimeError {
 			Self::ClassLoad(e) => write!(f, "while loading a class: {e:?}"),
 			//Self::ClassAlreadyLoaded(jutf8) => write!(f, "class already loaded: {jutf8:?}"),
 			Self::OutOfBounds(e) => write!(f, "out of bounds: {e:?}"),
+			x => write!(f, "{x:?}"),
 		}
 	}
 }
