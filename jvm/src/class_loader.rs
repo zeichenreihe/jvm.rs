@@ -1,11 +1,9 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::collections::HashMap;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use crate::class_instance::{Class, Field};
-use crate::classfile::ClassFile;
-use crate::errors::{ClassFileParseError, ClassLoadError, RuntimeError};
+use crate::classfile::{ClassFile, ClassInfo};
+use crate::errors::{ClassFileParseError, ClassLoadError};
 
 // class loading action list:
 // - loading: load ClassFile from disk/...
@@ -30,13 +28,14 @@ pub enum ClassesSource {
 	/// A class file that's embedded in the application that's running. The name is checked with the name in the bytes.
 	Bytes {
 		name: String, // TODO: ensure that the name here matches the name in the bytes
-		bytes: &'static [u8],
+		bytes: Vec<u8>,
 	},
 }
 
 impl ClassesSource {
-	fn load(&self, name: &String) -> Result<Option<ClassFile>, ClassFileParseError> {
-		if name == match self {
+	/// Attempts to locate and load a class. Returns `Ok(None)` if no class with the name can be found.
+	fn load(&self, name: &ClassInfo) -> Result<Option<ClassFile>, ClassFileParseError> {
+		if &name.name.to_string() == match self {
 			ClassesSource::Class { name, .. } => name,
 			ClassesSource::Bytes { name, .. } => name,
 			_ => todo!(),
@@ -59,14 +58,22 @@ impl ClassesSource {
 	}
 }
 
-struct ClassLoader {
-	sources: Vec<ClassesSource>,
-	classes: HashMap<String, Class>,
+#[derive(Debug)]
+pub struct ClassLoader {
+	pub sources: Vec<ClassesSource>,
+	classes: HashMap<ClassInfo, Class>,
 }
 
 impl ClassLoader {
+	pub fn new() -> ClassLoader {
+		ClassLoader {
+			sources: Vec::new(),
+			classes: HashMap::new(),
+		}
+	}
+
 	// call only if you tried getting and didn't find any
-	fn load(&mut self, class_name: &String, currently_loading: &mut Vec<String>) -> Result<Class, ClassLoadError> {
+	fn load(&mut self, class_name: &ClassInfo, currently_loading: &mut Vec<ClassInfo>) -> Result<Class, ClassLoadError> {
 		let class_file = self.sources.iter()
 			.find_map(|source| {
 				match source.load(class_name) {
@@ -78,13 +85,11 @@ impl ClassLoader {
 					},
 				}
 			})
-			.ok_or_else(|| ClassLoadError::NoSuchClassDef(class_name.clone()))?;
+			.ok_or_else(|| ClassLoadError::NoClassDefFoundError(class_name.clone()))?;
 
-		let super_class_size = if let Some(super_class) = class_file.super_class {
-			// TODO: recursive loading
-			let super_class = self.get_checked(super_class.name.to_string(), currently_loading)?;
-			//super_class
-			todo!()
+		let super_class_size = if let Some(super_class) = &class_file.super_class {
+			let super_class = self.get_checked(super_class, currently_loading)?;
+			super_class.instance_size()
 		} else {
 			0
 		};
@@ -93,7 +98,7 @@ impl ClassLoader {
 			super_class_size,
 			class: class_file.clone(),
 			fields: class_file.fields.iter()
-				.map(|f| {
+				.map(|_f| {
 					Field { }
 				})
 				.collect(),
@@ -102,19 +107,19 @@ impl ClassLoader {
 		Ok(class)
 	}
 
-	fn get(&mut self, class_name: String) -> Result<&Class, ClassLoadError> {
+	pub fn get(&mut self, class_name: &ClassInfo) -> Result<&Class, ClassLoadError> {
 		self.get_checked(class_name, &mut Vec::new())
 	}
 
-	fn get_checked(&mut self, class_name: String, currently_loading: &mut Vec<String>) -> Result<&Class, ClassLoadError> {
-		if !self.classes.contains_key(&class_name) {
+	fn get_checked(&mut self, class_name: &ClassInfo, currently_loading: &mut Vec<ClassInfo>) -> Result<&Class, ClassLoadError> {
+		if !self.classes.contains_key(class_name) {
 
 			// Let C be a class that we try to load. This loading can load other classes, say C_1, C_2, C_3 and so on. To ensure that such a class isn't the
 			// class C itself, we add any class we try to load to this Vec<String>, and if we try to load a class we're already loading, we detect the circular
 			// class loading. The operations .push() and .pop() can be used as these will always be executed in pairs.
 
-			if currently_loading.contains(&class_name) {
-				return Err(todo!()); // Circular class loading!
+			if currently_loading.contains(class_name) {
+				return Err(ClassLoadError::ClassCircularityError());
 			}
 
 			currently_loading.push(class_name.clone());
@@ -123,10 +128,10 @@ impl ClassLoader {
 			self.classes.insert(class_name.clone(), class);
 
 			// TODO: don't let this panic, throw some useful exception!
-			assert_eq!(currently_loading.pop().unwrap(), class_name);
+			assert_eq!(&currently_loading.pop().unwrap(), class_name);
 		}
 
-		Ok(self.classes.get(&class_name).unwrap())
+		Ok(self.classes.get(class_name).unwrap())
 	}
 }
 
