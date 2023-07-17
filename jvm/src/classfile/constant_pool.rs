@@ -460,6 +460,7 @@ impl CpInfo {
 	}
 }
 
+#[derive(Debug)]
 struct CpInfoVec(Vec<CpInfo>);
 impl CpInfoVec {
 	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
@@ -474,7 +475,7 @@ impl CpInfoVec {
 		where ClassFileParseError: From<<T as TryFrom<CpInfo>>::Error>
 	{
 		let index = index.0 as usize;
-		match self.0.get(index) {
+		match self.0.get(index - 1) { // TODO: this can panic!
 			Some(item) => Ok(T::try_from(item.clone())?),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
 		}
@@ -525,7 +526,10 @@ impl ConstantPool {
 	pub fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
 		let cp_info_vec = CpInfoVec::parse(reader)?;
 
-		let mut vec = Vec::with_capacity(cp_info_vec.0.len());
+		let mut vec = Vec::with_capacity(cp_info_vec.0.len() + 1);
+		vec.push(ConstantPoolElement::String(StringInfo {
+			utf8: Utf8Info::from("Nope! This is the 0-index constant pool entry, you shouldn't be able to get this!")
+		}));
 		for i in &cp_info_vec.0 {
 			vec.push(i.unwrap(&cp_info_vec)?);
 		}
@@ -536,8 +540,7 @@ impl ConstantPool {
 	pub fn parse_index<R: Read, T: TryFrom<ConstantPoolElement>>(&self, reader: &mut R) -> Result<T, ClassFileParseError>
 		where ClassFileParseError: From<<T as TryFrom<ConstantPoolElement>>::Error>
 	{
-		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic? yes I think so
-		self.get(index)
+		self.get(parse_u2(reader)? as usize)
 	}
 
 	/// Reads an [u16] and interprets it as an index into the constant pool, allowing `0` for [None]. If not zero, reads the constant pool at the given
@@ -549,7 +552,6 @@ impl ConstantPool {
 		if index == 0 {
 			return Ok(None);
 		}
-		let index = index - 1;
 		match self.get(index) {
 			Ok(item) => Ok(Some(item)),
 			Err(e) => Err(e),
@@ -558,7 +560,7 @@ impl ConstantPool {
 
 	/// Reads an [u16] and interprets it as an index into the constant pool. Doesn't try to convert the tag there.
 	pub fn parse_index_get<R: Read>(&self, reader: &mut R) -> Result<&ConstantPoolElement, ClassFileParseError> {
-		let index = parse_u2(reader)? as usize - 1; // TODO: can this panic? yes I think so
+		let index = parse_u2(reader)? as usize;
 		match self.0.get(index) {
 			Some(item) => Ok(item),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
