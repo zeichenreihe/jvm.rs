@@ -5,7 +5,7 @@ use crate::errors::OutOfBoundsError;
 use crate::executor::{JInt, JReference};
 
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Field {
 
 }
@@ -16,6 +16,7 @@ impl Field {
 	}
 }
 
+#[derive(Debug, Clone)]
 pub struct Class {
 	pub super_class_size: usize,
 	pub class: ClassFile,
@@ -24,13 +25,13 @@ pub struct Class {
 }
 
 impl Class {
-	fn instance_size(&self) -> usize {
+	pub fn instance_size(&self) -> usize {
 		self.fields.iter()
 			.map(|f| f.get_size())
 			.sum::<usize>() + self.super_class_size
 	}
 
-	fn field_offset(&self, field: &Field) -> Result<usize, ()> {
+	pub fn field_offset(&self, field: &Field) -> Result<usize, ()> {
 		Ok(self.fields.iter()
 			.take_while(|&f| f != field)
 			.map(|f| f.get_size())

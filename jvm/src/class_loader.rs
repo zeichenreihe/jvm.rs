@@ -12,8 +12,9 @@ use crate::errors::{ClassFileParseError, ClassLoadError, RuntimeError};
 // - linking: convert from ClassFile to Class
 // - initialisation: call <clinit>
 
+#[derive(Debug)]
 /// Represents a searchable thing to check when loading a class.
-enum ClassesSource {
+pub enum ClassesSource {
 	/// A `.zip` or `.jar` file containing `.class` files, given by a name like `/foo/bar/Baz.class` for the class `foo/bar/Baz`. Will be searched for a class
 	/// matching in file name, then the name in the class file is checked.
 	Jar(Box<Path>),

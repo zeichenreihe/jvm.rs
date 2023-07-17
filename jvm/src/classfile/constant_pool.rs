@@ -45,9 +45,27 @@ impl CpInfoClass {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ClassInfo {
 	pub name: Utf8Info,
+}
+
+impl From<&str> for ClassInfo {
+	fn from(value: &str) -> Self {
+		ClassInfo { name: Utf8Info::from(value) }
+	}
+}
+
+impl Debug for ClassInfo {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "class: \"{}\"", self.name)
+	}
+}
+
+impl Display for ClassInfo {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.name)
+	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,9 +161,21 @@ impl CpInfoString {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct StringInfo {
 	utf8: Utf8Info,
+}
+
+impl Debug for StringInfo {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "string: \"{}\"", self.utf8)
+	}
+}
+
+impl Display for StringInfo {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.utf8)
+	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -268,7 +298,7 @@ impl Debug for CpInfoUtf8 {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Utf8Info {
 	pub bytes: Vec<u8>,
 }
@@ -277,9 +307,21 @@ impl From<CpInfoUtf8> for Utf8Info {
 		Self { bytes: value.bytes }
 	}
 }
-impl ToString for Utf8Info {
-	fn to_string(&self) -> String {
-		todo!("that's hard, because of strange utf8 impl!")
+impl From<&str> for Utf8Info {
+	fn from(value: &str) -> Self {
+		Utf8Info { bytes: value.bytes().collect() }
+	}
+}
+impl Display for Utf8Info {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		// todo!("that's hard, because of strange utf8 impl!")
+		write!(f, "{}", String::from_utf8(self.bytes.clone()).unwrap())
+	}
+}
+impl Debug for Utf8Info {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		//write!(f, "Utf8Info {{ string: \"{}\", raw: {:?} }}", self.to_string(), self.bytes)
+		write!(f, "Utf8Info {{ string: \"{}\" }}", self.to_string())
 	}
 }
 
