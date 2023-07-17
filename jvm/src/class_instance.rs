@@ -43,7 +43,7 @@ impl Class {
 
 /// Represents the memory that contains the fields of a class
 pub struct ClassInstance<const SIZE: usize> {
-	class: ClassFile,
+	class: Class,
 	// in memory:
 	// <parent class instance><first field><second field><...><last field>
 	data: Box<[u8; SIZE]>

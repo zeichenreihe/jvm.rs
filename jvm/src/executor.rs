@@ -21,26 +21,16 @@ pub type JReference = u64; //todo!();
 
 #[derive(Debug)]
 struct Vm {
-	classes: HashMap<JUtf8, ClassFile>,
+	loader: ClassLoader,
 	stack: VmStack,
 }
 
 impl Vm {
 	fn new() -> Vm {
-		Vm { classes: HashMap::new(), stack: VmStack { frames: Vec::new() }}
-	}
-
-	fn try_add_class<R: Read>(&mut self, mut reader: R) -> Result<(), ClassLoadError> {
-		let classfile = ClassFile::parse(&mut reader)?;
-
-		match self.classes.insert(classfile.this_class.name.clone().into(), classfile) {
-			Some(class) => Err(ClassLoadError::ClassAlreadyLoaded(class.this_class.name.into())),
-			None => Ok(()),
+		Vm {
+			loader: ClassLoader::new(),
+			stack: VmStack { frames: Vec::new() }
 		}
-	}
-
-	fn get_class(&self, name: &JUtf8) -> Result<&ClassFile, ClassLoadError> {
-		self.classes.get(name).ok_or_else(|| ClassLoadError::NoClassDefFound(name.to_owned()))
 	}
 }
 
@@ -57,7 +47,7 @@ struct VmStackFrame {
 
 	program_counter: usize,
 	code: Vec<u8>,
-	class: ClassFile,
+	class: Class,
 }
 
 impl Display for VmStackFrame {
@@ -117,13 +107,13 @@ impl VmStackFrame {
 				},
 				Opcode::GetStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
-					let field_ref: FieldRefInfo = self.class.constant_pool.get(index)?;
+					let field_ref: FieldRefInfo = self.class.class.constant_pool.get(index)?;
 
-					let name = field_ref.name_and_type.name;
 					let class = field_ref.class;
+					let name = field_ref.name_and_type.name;
 					let desc = field_ref.name_and_type.descriptor;
 
-					println!("{class:?}, {name:?}, {desc:?}");
+					println!("{class}, {name}, {desc}");
 
 					self.push_stack(2223)?;
 				},
@@ -142,13 +132,13 @@ impl VmStackFrame {
 				Opcode::InvokeSpecial => {
 					let index = self.read_constant_pool_two_indexes()?;
 
-					let method_ref: MethodRefInfo = self.class.constant_pool.get(index)?;
+					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
-					let name = method_ref.name_and_type.name;
 					let class = method_ref.class;
+					let name = method_ref.name_and_type.name;
 					let desc = method_ref.name_and_type.descriptor;
 
-					println!("{class:?}, {name:?}, {desc:?}");
+					println!("{class}, {name}, {desc}");
 
 					let desc = desc.to_string();
 					if desc == String::from("()V") {
@@ -157,20 +147,20 @@ impl VmStackFrame {
 				},
 				Opcode::Ldc => {
 					let index = self.read_isn()? as usize;
-					let item: ConstantPoolElement = self.class.constant_pool.get(index)?;
+					let item: ConstantPoolElement = self.class.class.constant_pool.get(index)?;
 					println!("{item:?}");
 					self.push_stack(3444)?;
 				},
 				Opcode::InvokeVirtual => {
 					let index = self.read_constant_pool_two_indexes()?;
 
-					let method_ref: MethodRefInfo = self.class.constant_pool.get(index)?;
+					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
-					let name = method_ref.name_and_type.name;
 					let class = method_ref.class;
+					let name = method_ref.name_and_type.name;
 					let desc = method_ref.name_and_type.descriptor;
 
-					println!("{class:?}, {name:?}, {desc:?}");
+					println!("{class}, {name}, {desc}");
 
 					let desc = desc.to_string();
 					if desc == "(Ljava/lang/String;)Ljava/lang/StringBuilder;" {
@@ -194,13 +184,13 @@ impl VmStackFrame {
 				Opcode::InvokeStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
 
-					let method_ref: MethodRefInfo = self.class.constant_pool.get(index)?;
+					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
-					let name = method_ref.name_and_type.name;
 					let class = method_ref.class;
+					let name = method_ref.name_and_type.name;
 					let desc = method_ref.name_and_type.descriptor;
 
-					println!("{class:?}, {name:?}, {desc:?}");
+					println!("{class}, {name}, {desc}");
 
 					let desc = desc.to_string();
 					if desc == "([Ljava/lang/Object;)Ljava/lang/String;" {
@@ -298,7 +288,7 @@ mod testing {
 
 		let class = vm.get_class(&"Test".into()).unwrap();
 
-		let main = class.methods.iter()
+		let main = class.class.methods.iter()
 			.find(|m| m.name.to_string().as_str() == "main")
 			.unwrap();
 
