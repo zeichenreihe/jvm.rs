@@ -3,6 +3,11 @@ import java.util.Objects;
 
 public class Test2 {
 	public static final int FOO = getFoo();
+	public static final byte BAR = (byte) 0;
+	public boolean baz = true;
+	public long foo = 0L;
+	public double bar = 0.0;
+	public short k = 0;
 
 	public static int getFoo() {
 		return 10;
