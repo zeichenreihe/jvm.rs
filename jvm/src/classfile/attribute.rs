@@ -1,4 +1,5 @@
 use std::io::Read;
+use itertools::{Either, Itertools};
 use crate::classfile::{ClassInfo, ConstantPool, ConstantPoolElement, DoubleInfo, FloatInfo, IntegerInfo, LongInfo, MethodHandleInfo, MethodTypeInfo, NameAndTypeInfo, parse_u1, parse_u2, parse_u4, parse_vec, StringInfo, Utf8Info};
 use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
 
@@ -48,6 +49,10 @@ pub struct CodeAttribute { // 4.7.3
 	pub code: Vec<u8>,
 	pub exception_table: Vec<ExceptionTableEntry>,
 	pub attributes: Vec<AttributeInfo>,
+
+	pub line_number_table: Option<LineNumberTableAttribute>,
+	pub local_variable_table: Option<LocalVariableTableAttribute>,
+	pub local_variable_type_table: Option<LocalVariableTypeTableAttribute>,
 	pub stack_map_table: StackMapTableAttribute,
 }
 
@@ -73,16 +78,43 @@ impl CodeAttribute {
 		   |r| AttributeInfo::parse(r, constant_pool)
 		)?;
 
-		let stack_map_table = attributes.iter()
-			.find_map(|a| match a {
-				AttributeInfo::StackMapTable(s) => Some(s.clone()),
-				_ => None,
-			})
-			.unwrap_or_else(|| StackMapTableAttribute {
-				entries: Vec::new()
+		// LineNumberTableAttribute
+		let (line_number_tables, attributes): (Vec<LineNumberTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
+			.partition_map(|attribute| match attribute {
+				AttributeInfo::LineNumberTable(line_number_table) => Either::Left(line_number_table),
+				other => Either::Right(other),
+			});
+		let line_number_table = line_number_tables.into_iter().next();
+
+		// LocalVariableTableAttribute
+		let (local_variable_tables, attributes): (Vec<LocalVariableTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
+			.partition_map(|attribute| match attribute {
+				AttributeInfo::LocalVariableTable(local_variable_table) => Either::Left(local_variable_table),
+				other => Either::Right(other),
+			});
+		let local_variable_table = local_variable_tables.into_iter().next();
+
+		// LocalVariableTypeTableAttribute
+		let (local_variable_type_tables, attributes): (Vec<LocalVariableTypeTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
+			.partition_map(|attribute| match attribute {
+				AttributeInfo::LocalVariableTypeTable(local_variable_type_table) => Either::Left(local_variable_type_table),
+				other => Either::Right(other),
+			});
+		let local_variable_type_table = local_variable_type_tables.into_iter().next();
+
+		// StackMapTableAttribute
+		let (stack_map_tables, attributes): (Vec<StackMapTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
+			.partition_map(|attribute| match attribute {
+				AttributeInfo::StackMapTable(stack_map_table) => Either::Left(stack_map_table),
+				other => Either::Right(other),
 			});
 
-		attributes.retain(|a| !matches!(a, AttributeInfo::StackMapTable(_)));
+		// ignore any, but the first StackMapTableAttribute
+		let stack_map_table = stack_map_tables.into_iter()
+			.next()
+			.unwrap_or_else(|| StackMapTableAttribute {
+				entries: Vec::new(),
+			});
 
 		Ok(CodeAttribute {
 			max_stack,
@@ -90,6 +122,9 @@ impl CodeAttribute {
 			code,
 			exception_table,
 			attributes,
+			line_number_table,
+			local_variable_table,
+			local_variable_type_table,
 			stack_map_table,
 		})
 	}

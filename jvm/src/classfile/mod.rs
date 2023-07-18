@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::io::Read;
+use itertools::{Either, Itertools};
 
 use crate::errors::ClassFileParseError;
 
@@ -142,16 +143,11 @@ impl MethodInfo {
 		   |r| AttributeInfo::parse(r, constant_pool)
 		)?;
 
-		let (code_iter, attributes): (Vec<Option<CodeAttribute>>, Vec<Option<AttributeInfo>>) = attributes.into_iter()
-			.map(|attribute| {
-				match attribute {
-					AttributeInfo::Code(code) => (Some(code), None),
-					attribute => (None, Some(attribute)),
-				}
-			})
-			.unzip();
-		let code: Vec<CodeAttribute> = code_iter.into_iter().filter_map(|x| x).collect();
-		let attributes: Vec<AttributeInfo> = attributes.into_iter().filter_map(|x| x).collect();
+		let (code, attributes): (Vec<CodeAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
+			.partition_map(|attribute| match attribute {
+				AttributeInfo::Code(code) => Either::Left(code),
+				other => Either::Right(other),
+			});
 
 		let code = if access_flags.is_native | access_flags.is_abstract {
 			if code.len() != 0 {
@@ -252,10 +248,10 @@ mod testing {
 		let class_file = ClassFile::parse(&mut &bytes[..]).unwrap();
 		class_file.verify().unwrap();
 
-		println!("{:#?}", class_file);
+		//println!("{:#?}", class_file);
 
 		for method in class_file.methods {
-			println!("method: {:#?}", method.code);
+		//	println!("method: {:#?}", method.code);
 		}
 	}
 
@@ -268,6 +264,6 @@ mod testing {
 		let mut class_file = rt.by_name("java/lang/Object.class").unwrap();
 		let classfile = ClassFile::parse(&mut class_file).unwrap();
 
-		println!("{classfile:#?}");
+		//println!("{classfile:#?}");
 	}
 }

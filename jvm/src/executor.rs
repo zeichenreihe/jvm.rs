@@ -214,6 +214,7 @@ impl VmStackFrame {
 					println!("done.");
 					break;
 				},
+				Opcode::Nop => {},
 				_ => todo!("opcode {opcode:?} not yet implemented"),
 			}
 
@@ -319,6 +320,13 @@ mod testing {
 			},
 		);
 
+		vm.loader.sources.push(
+			ClassesSource::Bytes {
+				name: String::from("Test2"),
+				bytes: include_bytes!("../../java_example_classfiles/Test2.class").to_vec(),
+			},
+		);
+
 		let class = vm.loader.get(&ClassInfo::from("Test")).unwrap();
 
 		let main = class.class.methods.iter()
@@ -351,6 +359,9 @@ mod testing {
 		vm.stack.frames.push(frame);
 
 		vm.stack.frames.last_mut().unwrap().run_isn().unwrap();
+
+		let class = vm.loader.get(&ClassInfo::from("Test2")).unwrap();
+		dbg!(class);
 	}
 
 	#[test]

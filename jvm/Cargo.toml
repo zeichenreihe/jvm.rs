@@ -11,6 +11,9 @@
     #classfile-parser = '0.3.6'
     zip = "0.6.0"
 
+    # iterator .partition() used for splitting up iterator of a struct
+    itertools = "0.11.0"
+
     # this will force inkwell to use prefer-static as well for llvm-sys :iea:
     # see https://github.com/llvm/llvm-project/issues/63109 for why
     llvm-sys = { version = "150.0.3", features = ["prefer-static"]}
