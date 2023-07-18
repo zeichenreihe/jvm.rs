@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
+use itertools::Itertools;
 use crate::class_instance::{Class, Field};
 use crate::classfile::{ClassFile, ClassInfo};
 use crate::errors::{ClassFileParseError, ClassLoadError};
+use crate::types::descriptor::FieldDescriptor;
 
 // class loading action list:
 // - loading: load ClassFile from disk/...
@@ -89,19 +91,31 @@ impl ClassLoader {
 
 		let super_class_size = if let Some(super_class) = &class_file.super_class {
 			let super_class = self.get_checked(super_class, currently_loading)?;
-			super_class.instance_size()
+			super_class.super_class_size + super_class.class_size
 		} else {
 			0
 		};
 
+		let mut field_offset = 0;
+		let fields = class_file.fields.iter()
+			.map(|field| {
+				let descriptor = FieldDescriptor::parse(&field.descriptor).unwrap(); // TODO: panic, fix this
+				let size = descriptor.base_or_object_type.get_size() * 4;
+				let f = Field {
+					descriptor,
+					size,
+					field_offset,
+				};
+				field_offset += size;
+				f
+			})
+			.collect();
+
 		let class = Class {
 			super_class_size,
+			class_size: field_offset,
 			class: class_file.clone(),
-			fields: class_file.fields.iter()
-				.map(|_f| {
-					Field { }
-				})
-				.collect(),
+			fields,
 		};
 
 		Ok(class)

@@ -3,11 +3,14 @@ use std::sync::Arc;
 use crate::classfile::ClassFile;
 use crate::errors::OutOfBoundsError;
 use crate::executor::{JInt, JReference};
+use crate::types::descriptor::FieldDescriptor;
 
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field {
-
+	pub size: usize,
+	pub field_offset: usize,
+	pub descriptor: FieldDescriptor,
 }
 
 impl Field {
@@ -19,24 +22,13 @@ impl Field {
 #[derive(Debug, Clone)]
 pub struct Class {
 	pub super_class_size: usize,
+	pub class_size: usize,
 	pub class: ClassFile,
 	pub fields: Vec<Field>,
 	// method table
 }
 
 impl Class {
-	pub fn instance_size(&self) -> usize {
-		self.fields.iter()
-			.map(|f| f.get_size())
-			.sum::<usize>() + self.super_class_size
-	}
-
-	pub fn field_offset(&self, field: &Field) -> Result<usize, ()> {
-		Ok(self.fields.iter()
-			.take_while(|&f| f != field)
-			.map(|f| f.get_size())
-			.sum::<usize>() + self.super_class_size)
-	}
 }
 
 

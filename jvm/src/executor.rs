@@ -241,6 +241,7 @@ mod testing {
 	use crate::class_loader::ClassesSource;
 	use crate::classfile::{AttributeInfo, ClassFile, ClassInfo, CodeAttribute};
 	use crate::executor::{StackFrameLvType, Vm};
+	use crate::types::descriptor::{BaseOrObjectType, FieldDescriptor};
 	use super::VmStackFrame;
 
 	#[test]
@@ -269,10 +270,18 @@ mod testing {
 			},
 			class: Class {
 				super_class_size: 0,
+				class_size: 0,
 				class: class_file.clone(),
 				fields: class_file.fields.iter()
 					.map(|f| {
-						Field { }
+						Field {
+							size: 0,
+							field_offset: 0,
+							descriptor: FieldDescriptor {
+								array_dimension: 0,
+								base_or_object_type: BaseOrObjectType::B
+							}
+						}
 					})
 					.collect(),
 			},

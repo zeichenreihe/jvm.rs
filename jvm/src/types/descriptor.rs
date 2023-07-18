@@ -69,6 +69,21 @@ impl BaseOrObjectType {
 			_ => panic!("not a valid desc"),
 		})
 	}
+
+	/// gets the size in how many lv slots are needed
+	pub fn get_size(&self) -> usize {
+		match self {
+			BaseOrObjectType::B => 1,
+			BaseOrObjectType::C => 1,
+			BaseOrObjectType::D => 2,
+			BaseOrObjectType::F => 1,
+			BaseOrObjectType::I => 1,
+			BaseOrObjectType::J => 2,
+			BaseOrObjectType::S => 1,
+			BaseOrObjectType::Z => 1,
+			BaseOrObjectType::Object(_) => 1,
+		}
+	}
 }
 
 #[derive(Debug, Clone, PartialEq)]
