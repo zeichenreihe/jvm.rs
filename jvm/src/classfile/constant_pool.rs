@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Read;
-use crate::classfile::{parse_u1, parse_u2, parse_u4, parse_vec};
+use crate::classfile::{parse_u1, parse_u2, parse_u2_as_usize, parse_u4, parse_vec};
 use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
 
 // note that the types starting with CpInfo are parsed from the reader in the first run
@@ -286,8 +286,8 @@ impl CpInfoUtf8 {
 	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
 		Ok(Self {
 			bytes: parse_vec(reader,
-			 |r| Ok(parse_u2(r)? as usize),
-			 |r| parse_u1(r)
+			 parse_u2_as_usize,
+			 parse_u1
 			)?,
 		})
 	}

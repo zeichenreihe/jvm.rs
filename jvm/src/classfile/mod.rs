@@ -11,7 +11,8 @@ mod constant_pool;
 pub use constant_pool::*;
 
 macro_rules! gen_parse_u_int {
-	($name:tt, $n:literal, $t:ty) => {
+	($name:tt, $usize_parse_name:tt, $n:literal, $t:ty) => {
+		#[inline]
 		fn $name<R: Read>(reader: &mut R) -> Result<$t, std::io::Error> {
 			let mut buf = [0u8; $n];
 			let length = reader.read(&mut buf)?;
@@ -21,11 +22,15 @@ macro_rules! gen_parse_u_int {
 				Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))
 			}
 		}
+		#[inline]
+		fn $usize_parse_name<R: Read, E: From<std::io::Error>>(reader: &mut R) -> Result<usize, E> {
+			Ok($name(reader)? as usize)
+		}
 	}
 }
-gen_parse_u_int!(parse_u1, 1, u8);
-gen_parse_u_int!(parse_u2, 2, u16);
-gen_parse_u_int!(parse_u4, 4, u32);
+gen_parse_u_int!(parse_u1, parse_u1_as_usize, 1, u8);
+gen_parse_u_int!(parse_u2, parse_u2_as_usize, 2, u16);
+gen_parse_u_int!(parse_u4, parse_u4_as_usize, 4, u32);
 
 /// First calls the `size` parameter to get the length of the data, then calls `element` so often to read the data, returning the data then. The argument
 /// `reader` is given to both closures.
@@ -114,7 +119,7 @@ impl FieldInfo {
 			name: constant_pool.parse_index(reader)?,
 			descriptor: constant_pool.parse_index(reader)?,
 			attributes: parse_vec(reader,
-			    |r| Ok(parse_u2(r)? as usize),
+			    parse_u2_as_usize,
 			    |r| AttributeInfo::parse(r, constant_pool),
 			)?,
 		})
@@ -215,7 +220,7 @@ impl MethodInfo {
 		let name = constant_pool.parse_index(reader)?;
 		let descriptor = constant_pool.parse_index(reader)?;
 		let attributes = parse_vec(reader,
-		   |r| Ok(parse_u2(r)? as usize),
+		   parse_u2_as_usize,
 		   |r| AttributeInfo::parse(r, constant_pool)
 		)?;
 
@@ -292,15 +297,15 @@ impl ClassFile {
 		};
 
 		let fields = parse_vec(reader,
-			|r| Ok(parse_u2(r)? as usize),
+			parse_u2_as_usize,
 			|r| FieldInfo::parse(r, &constant_pool)
 		)?;
 		let methods = parse_vec(reader,
-		   |r| Ok(parse_u2(r)? as usize),
-		   |r| MethodInfo::parse(r, &constant_pool)
+		    parse_u2_as_usize,
+		    |r| MethodInfo::parse(r, &constant_pool)
 		)?;
 		let attributes = parse_vec(reader,
-		   |r| Ok(parse_u2(r)? as usize),
+			parse_u2_as_usize,
 		   |r| AttributeInfo::parse(r, &constant_pool)
 		)?;
 

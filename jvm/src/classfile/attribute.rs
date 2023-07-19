@@ -1,6 +1,6 @@
 use std::io::Read;
 use itertools::{Either, Itertools};
-use crate::classfile::{ClassInfo, ConstantPool, ConstantPoolElement, DoubleInfo, FloatInfo, IntegerInfo, LongInfo, MethodHandleInfo, MethodTypeInfo, NameAndTypeInfo, parse_u1, parse_u2, parse_u4, parse_vec, StringInfo, Utf8Info};
+use crate::classfile::{ClassInfo, ConstantPool, ConstantPoolElement, DoubleInfo, FloatInfo, IntegerInfo, LongInfo, MethodHandleInfo, MethodTypeInfo, NameAndTypeInfo, parse_u1, parse_u1_as_usize, parse_u2, parse_u2_as_usize, parse_u4, parse_u4_as_usize, parse_vec, StringInfo, Utf8Info};
 use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
 
 fn check_attribute_length<R: Read>(reader: &mut R, length: u32) -> Result<(), ClassFileParseError> {
@@ -64,17 +64,17 @@ impl CodeAttribute {
 		let max_locals = parse_u2(reader)?;
 
 		let code = parse_vec(reader,
-			|r| Ok(parse_u4(r)? as usize),
-			|r| parse_u1(r)
+			parse_u4_as_usize,
+			parse_u1
 		)?;
 
 		let exception_table = parse_vec(reader,
-			|r| Ok(parse_u2(r)? as usize),
-			|r|  ExceptionTableEntry::parse(r, constant_pool)
+			parse_u2_as_usize,
+			|r| ExceptionTableEntry::parse(r, constant_pool)
 		)?;
 
 		let mut attributes = parse_vec(reader,
-		   |r| Ok(parse_u2(r)? as usize),
+		   parse_u2_as_usize,
 		   |r| AttributeInfo::parse(r, constant_pool)
 		)?;
 
@@ -157,7 +157,7 @@ impl StackMapTableAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(StackMapTableAttribute {
 			entries: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| StackMapFrame::parse(r, constant_pool)
 			)?,
 		})
@@ -250,11 +250,11 @@ impl StackMapFrame {
 			255 => Ok(Self::Full {
 				offset_delta: parse_u2(reader)?,
 				locals: parse_vec(reader,
-					|r| Ok(parse_u2(r)? as usize),
+					parse_u2_as_usize,
 					|r| VerificationTypeInfo::parse(r, constant_pool)
 				)?,
 				stack: parse_vec(reader,
-					|r| Ok(parse_u2(r)? as usize),
+					parse_u2_as_usize,
 					|r| VerificationTypeInfo::parse(r, constant_pool)
 				)?,
 			}),
@@ -272,7 +272,7 @@ impl ExceptionsAttribute {
 
 		Ok(ExceptionsAttribute {
 			exception_table: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| constant_pool.parse_index(r)
 			)?,
 		})
@@ -289,7 +289,7 @@ impl InnerClassesAttribute {
 
 		Ok(InnerClassesAttribute {
 			classes: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| InnerClassesAttributeClassesElement::parse(r, constant_pool)
 			)?,
 		})
@@ -371,7 +371,10 @@ pub struct SourceDebugExtensionsAttribute { // 4.7.11
 impl SourceDebugExtensionsAttribute {
 	fn parse<R: Read>(reader: &mut R) -> Result<SourceDebugExtensionsAttribute, ClassFileParseError> {
 		Ok(SourceDebugExtensionsAttribute {
-			debug_extension: parse_vec(reader, |r| Ok(parse_u4(r)? as usize), |r| parse_u1(r))?,
+			debug_extension: parse_vec(reader,
+				parse_u4_as_usize,
+				parse_u1
+			)?,
 		})
 	}
 }
@@ -385,7 +388,7 @@ impl LineNumberTableAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(LineNumberTableAttribute {
 			line_number_table: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| LineNumberTableEntry::parse(r)
 			)?,
 		})
@@ -415,7 +418,7 @@ impl LocalVariableTableAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(LocalVariableTableAttribute {
 			local_variable_table: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| LocalVariableTableEntry::parse(r, constant_pool)
 			)?,
 		})
@@ -451,7 +454,7 @@ impl LocalVariableTypeTableAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(LocalVariableTypeTableAttribute {
 			local_variable_type_table: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| LocalVariableTypeTableEntry::parse(r, constant_pool)
 			)?,
 		})
@@ -496,7 +499,7 @@ impl RuntimeVisibleAnnotationsAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(RuntimeVisibleAnnotationsAttribute {
 			annotations: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| Annotation::parse(r, constant_pool),
 			)?,
 		})
@@ -513,7 +516,7 @@ impl Annotation {
 		Ok(Annotation {
 			annotation_type: constant_pool.parse_index(reader)?,
 			element_value_pairs: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| AnnotationElementValuePair::parse(r, constant_pool)
 			)?,
 		})
@@ -577,7 +580,7 @@ impl AnnotationElementValue {
 			'[' => {
 				Self::ArrayValue {
 					values: parse_vec(reader,
-						|r| Ok(parse_u2(r)? as usize),
+						parse_u2_as_usize,
 						|r| AnnotationElementValue::parse(r, constant_pool)
 					)?,
 				}
@@ -596,7 +599,7 @@ impl RuntimeInvisibleAnnotationsAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(RuntimeInvisibleAnnotationsAttribute {
 			annotations: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| Annotation::parse(r, constant_pool)
 			)?,
 		})
@@ -612,7 +615,7 @@ impl RuntimeVisibleParameterAnnotationsAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(RuntimeVisibleParameterAnnotationsAttribute {
 			parameter_annotations: parse_vec(reader,
-				|r| Ok(parse_u1(r)? as usize),
+				parse_u1_as_usize,
 				|r| ParameterAnnotationPair::parse(r, constant_pool)
 			)?,
 		})
@@ -627,7 +630,7 @@ impl ParameterAnnotationPair {
 	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<ParameterAnnotationPair, ClassFileParseError> {
 		Ok(ParameterAnnotationPair {
 			annotations: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| Annotation::parse(r, constant_pool)
 			)?,
 		})
@@ -643,7 +646,7 @@ impl RuntimeInvisibleParameterAnnotationsAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(RuntimeInvisibleParameterAnnotationsAttribute {
 			parameter_annotations: parse_vec(reader,
-		        |r| Ok(parse_u1(r)? as usize),
+		        parse_u1_as_usize,
 		        |r| ParameterAnnotationPair::parse(r, constant_pool)
 			)?,
 		})
@@ -672,7 +675,7 @@ impl BootstrapMethodsAttribute {
 		let _attribute_length = parse_u4(reader)?;
 		Ok(BootstrapMethodsAttribute {
 			bootstrap_methods: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| BootstrapMethodsAttributeEntry::parse(r, constant_pool)
 			)?,
 		})
@@ -689,7 +692,7 @@ impl BootstrapMethodsAttributeEntry {
 		Ok(BootstrapMethodsAttributeEntry {
 			boostrap_method: constant_pool.parse_index(reader)?,
 			bootstrap_arguments: parse_vec(reader,
-				|r| Ok(parse_u2(r)? as usize),
+				parse_u2_as_usize,
 				|r| BootstrapMethodArgument::parse(r, constant_pool)
 			)?
 		})
@@ -782,8 +785,8 @@ impl AttributeInfo {
 			"BootstrapMethods" => Self::BootstrapMethods(BootstrapMethodsAttribute::parse(reader, constant_pool)?),
 			name => {
 				let info = parse_vec(reader,
-				 |r| Ok(parse_u4(r)? as usize),
-				 |r| parse_u1(r)
+					parse_u4_as_usize,
+					parse_u1
 				)?;
 				eprintln!("WARN: unknown attr: {name}: {info:?}");
 				// TODO: let it actually store the name :iea:
