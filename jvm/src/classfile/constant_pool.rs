@@ -320,8 +320,7 @@ impl Display for Utf8Info {
 }
 impl Debug for Utf8Info {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		//write!(f, "Utf8Info {{ string: \"{}\", raw: {:?} }}", self.to_string(), self.bytes)
-		write!(f, "Utf8Info {{ string: \"{}\" }}", self.to_string())
+		write!(f, "Utf8Info {{ \"{}\" }}", self.to_string())
 	}
 }
 

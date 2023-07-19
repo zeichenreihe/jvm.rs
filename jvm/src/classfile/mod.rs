@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Formatter, Write};
 use std::io::Read;
 use itertools::{Either, Itertools};
 
@@ -42,9 +42,66 @@ fn parse_vec<T, R: Read, E, SIZE, ELEMENT>(reader: &mut R, size: SIZE, element: 
 	Ok(vec)
 }
 
+#[derive(Clone, PartialEq)]
+pub struct FieldInfoAccess {
+	pub is_public: bool,
+	pub is_private: bool,
+	pub is_protected: bool,
+	pub is_static: bool,
+	pub is_final: bool,
+	pub is_volatile: bool,
+	pub is_transient: bool,
+	pub is_synthetic: bool,
+	pub is_enum: bool,
+}
+
+impl FieldInfoAccess {
+	fn parse(access_flags: u16) -> Result<Self, ClassFileParseError> {
+		let is_public       = access_flags & 0x0001 != 0;
+		let is_private      = access_flags & 0x0002 != 0;
+		let is_protected    = access_flags & 0x0004 != 0;
+		let is_static       = access_flags & 0x0008 != 0;
+		let is_final        = access_flags & 0x0010 != 0;
+		let is_volatile     = access_flags & 0x0040 != 0;
+		let is_transient    = access_flags & 0x0080 != 0;
+		let is_synthetic    = access_flags & 0x1000 != 0;
+		let is_enum         = access_flags & 0x4000 != 0;
+		// other bits: reserved for future use
+
+		// at most one of: is_public, is_private, is_protected
+		// at most one of: is_final, is_volatile
+
+		let is_interface_field = false;
+		if is_interface_field {
+			// must have: is_public, is_static, is_final
+			// must not have: is_private, is_protected, is_volatile, is_transient, is_synthetic, is_enum
+		}
+
+		Ok(FieldInfoAccess {
+			is_public, is_private, is_protected, is_static, is_final, is_volatile, is_transient, is_synthetic, is_enum,
+		})
+	}
+}
+
+impl Debug for FieldInfoAccess {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.write_str("FieldInfoAccess { ")?;
+		if self.is_public    { f.write_str("public ")?; }
+		if self.is_private   { f.write_str("private ")?; }
+		if self.is_protected { f.write_str("protected ")?; }
+		if self.is_static    { f.write_str("static ")?; }
+		if self.is_final     { f.write_str("final ")?; }
+		if self.is_volatile  { f.write_str("volatile ")?; }
+		if self.is_transient { f.write_str("transient ")?; }
+		if self.is_synthetic { f.write_str("synthetic ")?; }
+		if self.is_enum      { f.write_str("enum ")?; }
+		f.write_str("}")
+	}
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldInfo { // 4.5
-	pub access_flags: u16,
+	pub access_flags: FieldInfoAccess,
 	pub name: Utf8Info,
 	pub descriptor: Utf8Info,
 	pub attributes: Vec<AttributeInfo>,
@@ -53,7 +110,7 @@ pub struct FieldInfo { // 4.5
 impl FieldInfo {
 	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
 		Ok(FieldInfo {
-			access_flags: parse_u2(reader)?,
+			access_flags: FieldInfoAccess::parse(parse_u2(reader)?)?,
 			name: constant_pool.parse_index(reader)?,
 			descriptor: constant_pool.parse_index(reader)?,
 			attributes: parse_vec(reader,
@@ -64,7 +121,7 @@ impl FieldInfo {
 	}
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct MethodInfoAccess {
 	pub is_public: bool,
 	pub is_private: bool,
@@ -121,6 +178,25 @@ impl MethodInfoAccess {
 		Ok(MethodInfoAccess {
 			is_public, is_private, is_protected, is_static, is_final, is_synchronised, is_bridge, is_varargs, is_native, is_abstract, is_strict, is_synthetic
 		})
+	}
+}
+
+impl Debug for MethodInfoAccess {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.write_str("MethodInfoAccess { ")?;
+		if self.is_public       { f.write_str("public ")?; }
+		if self.is_private      { f.write_str("private ")?; }
+		if self.is_protected    { f.write_str("protected ")?; }
+		if self.is_static       { f.write_str("static ")?; }
+		if self.is_final        { f.write_str("final ")?; }
+		if self.is_synchronised { f.write_str("synchronised ")?; }
+		if self.is_bridge       { f.write_str("bridge ")?; }
+		if self.is_varargs      { f.write_str("varargs ")?; }
+		if self.is_native       { f.write_str("native ")?; }
+		if self.is_abstract     { f.write_str("abstract ")?; }
+		if self.is_strict       { f.write_str("strict ")?; }
+		if self.is_synthetic    { f.write_str("synthetic ")?; }
+		f.write_str("}")
 	}
 }
 
