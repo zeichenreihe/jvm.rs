@@ -23,12 +23,18 @@ pub struct ConstantPoolTagMismatchError {
 
 impl Display for ConstantPoolTagMismatchError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "ConstantPoolTagMismatchError {{ expected: {}, actual: {} }}", self.expected, self.actual)
+		f.debug_struct("ConstantPoolTagMismatchError")
+			.field("expected", &self.expected)
+			.field("actual", &self.actual)
+			.finish()
 	}
 }
 impl Debug for ConstantPoolTagMismatchError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "ConstantPoolTagMismatchError {{ expected: {}, actual: {} }}", self.expected, self.actual)
+		f.debug_struct("ConstantPoolTagMismatchError")
+			.field("expected", &self.expected)
+			.field("actual", &self.actual)
+			.finish()
 	}
 }
 

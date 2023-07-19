@@ -239,7 +239,7 @@ mod testing {
 	use zip::ZipArchive;
 	use crate::class_instance::{Class, Field};
 	use crate::class_loader::ClassesSource;
-	use crate::classfile::{AttributeInfo, ClassFile, ClassInfo, CodeAttribute};
+	use crate::classfile::{ClassFile, ClassInfo};
 	use crate::executor::{StackFrameLvType, Vm};
 	use crate::types::descriptor::{BaseOrObjectType, FieldDescriptor};
 	use super::VmStackFrame;

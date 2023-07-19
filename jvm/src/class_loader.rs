@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
-use itertools::Itertools;
 use crate::class_instance::{Class, Field};
 use crate::classfile::{ClassFile, ClassInfo};
 use crate::errors::{ClassFileParseError, ClassLoadError};

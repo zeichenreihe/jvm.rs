@@ -294,7 +294,9 @@ impl CpInfoUtf8 {
 }
 impl Debug for CpInfoUtf8 {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "CpInfoUtf8 {{ bytes: \"{}\" }}", String::from_utf8_lossy(&self.bytes))
+		f.debug_tuple("CpInfoUtf8")
+			.field(&String::from_utf8_lossy(&self.bytes))
+			.finish()
 	}
 }
 
@@ -320,7 +322,9 @@ impl Display for Utf8Info {
 }
 impl Debug for Utf8Info {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "Utf8Info {{ \"{}\" }}", self.to_string())
+		f.debug_tuple("Utf8Info")
+			.field(&self.to_string())
+			.finish()
 	}
 }
 
@@ -560,7 +564,7 @@ try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::MethodHandle, Meth
 try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::MethodType, MethodTypeInfo, ConstantPoolTagMismatchError);
 try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::InvokeDynamic, InvokeDynamicInfo, ConstantPoolTagMismatchError);
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ConstantPool(Vec<ConstantPoolElement>);
 
 impl ConstantPool {
@@ -616,5 +620,15 @@ impl ConstantPool {
 			Some(item) => Ok(T::try_from(item.clone())?),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
 		}
+	}
+}
+
+impl Debug for ConstantPool {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		let mut t = f.debug_struct("ConstantPool");
+		for (pos, entry) in self.0.iter().enumerate() {
+			t.field(&format!("{pos}"), entry);
+		}
+		t.finish()
 	}
 }

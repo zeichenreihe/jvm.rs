@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter, Write};
+use std::fmt::{Debug, Formatter};
 use std::io::Read;
 use itertools::{Either, Itertools};
 

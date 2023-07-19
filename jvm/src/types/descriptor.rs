@@ -36,7 +36,6 @@ ReturnDescriptor:
  */
 
 use itertools::{Itertools, PeekingNext};
-use crate::classfile::ConstantPoolElement::FieldRef;
 use crate::classfile::Utf8Info;
 
 #[derive(Debug, Clone, PartialEq)]
