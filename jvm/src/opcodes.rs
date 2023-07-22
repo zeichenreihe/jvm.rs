@@ -4,7 +4,8 @@ pub enum Error {
 	UnknownOpcode ( u8 ),
 }
 
-/// An opcode of the jvm.
+#[warn(missing_docs)]
+/// An opcode of the JVM.
 #[derive(Debug)]
 pub enum Opcode { // 6.5
 	/// Load `reference` from array.
@@ -69,10 +70,32 @@ pub enum Opcode { // 6.5
 	/// The `index` is an unsigned byte that must be an index into the local variable array of the current frame. The local variable at `index` must contain a
 	/// `reference`. The `objectref` in the local variable at `index` is pushed onto the operand stack.
 	///
-	/// ... some note // TODO: add that note?
-	ALoad,
-	// TODO: doc?
-	ALoad0, ALoad1, ALoad2, ALoad3,
+	/// # Notes
+	/// The [Opcode::ALoad] instruction cannot be used to load a value of type `returnAddress` from a local variable onto the operand stack. This asymmetry
+	/// with the [Opcode::AStore] instruction is intentional.
+	ALoad { index: u8 },
+	/// Load `reference` from local variable \<n\>.
+	///
+	/// # Operand Stack
+	/// ```
+	/// ... ->
+	/// ..., objectref: reference
+	/// ```
+	///
+	/// # Description
+	/// The \<n\> must be an index into the local variable array of the current frame. The local variable at \<n\> must contain a `reference`. The `objectref`
+	/// in the local variable at \<n\> is pushed onto the operand stack.
+	///
+	/// # Notes
+	/// This instruction cannot be used to load a value of type `returnAddress` from a local variable onto the operand stack. This asymmetry with the
+	/// corresponding `AStore` instruction is intentional.
+	ALoad0,
+	/// See [Opcode::ALoad0].
+	ALoad1,
+	/// See [Opcode::ALoad0].
+	ALoad2,
+	/// See [Opcode::ALoad0].
+	ALoad3,
 	/// Create new array of `reference`.
 	///
 	/// # Format
@@ -103,7 +126,7 @@ pub enum Opcode { // 6.5
 	///
 	/// # Run-time Exceptions
 	/// - If `count` is less than zero, throw a `java.lang.NegativeArraySizeException`.
-	ANewArray,
+	ANewArray { indexbyte1: u8, indexbyte2: u8 },
 	/// Return `reference` from method.
 	///
 	/// # Operand Stack
@@ -153,8 +176,14 @@ pub enum Opcode { // 6.5
 	/// ```
 	///
 	/// TODO: description
-	AStore,
-	AStore0, AStore1, AStore2, AStore3,
+	AStore { index: u8 },
+	AStore0,
+	/// See [Opcode::AStore0].
+	AStore1,
+	/// See [Opcode::AStore0].
+	AStore2,
+	/// See [Opcode::AStore0].
+	AStore3,
 	/// Throw exception or error.
 	///
 	/// # Operand Stack
@@ -190,14 +219,26 @@ pub enum Opcode { // 6.5
 	DConst0,
 	DConst1,
 	DDiv,
-	DLoad,
-	DLoad0, DLoad1, DLoad2, DLoad3,
+	DLoad { index: u8 },
+	DLoad0,
+	/// See [Opcode::DLoad0].
+	DLoad1,
+	/// See [Opcode::DLoad0].
+	DLoad2,
+	/// See [Opcode::DLoad0].
+	DLoad3,
 	DMul,
 	DNeg,
 	DRem,
 	DReturn,
-	DStore,
-	DStore0, DStore1, DStore2, DStore3,
+	DStore { index: u8 },
+	DStore0,
+	/// See [Opcode::DStore0].
+	DStore1,
+	/// See [Opcode::DStore0].
+	DStore2,
+	/// See [Opcode::DStore0].
+	DStore3,
 	DSub,
 	Dup,
 	DupX1,
@@ -217,14 +258,26 @@ pub enum Opcode { // 6.5
 	FConst1,
 	FConst2,
 	FDiv,
-	FLoad,
-	FLoad0, FLoad1, FLoad2, FLoad3,
+	FLoad { index: u8 },
+	FLoad0,
+	/// See [Opcode::FLoad0].
+	FLoad1,
+	/// See [Opcode::FLoad0].
+	FLoad2,
+	/// See [Opcode::FLoad0].
+	FLoad3,
 	FMul,
 	FNeg,
 	FRem,
 	FReturn,
-	FStore,
-	FStore0, FStore1, FStore2, FStore3,
+	FStore { index: u8 },
+	FStore0,
+	/// See [Opcode::FStore0].
+	FStore1,
+	/// See [Opcode::FStore0].
+	FStore2,
+	/// See [Opcode::FStore0].
+	FStore3,
 	FSub,
 	GetField,
 	GetStatic,
@@ -246,7 +299,7 @@ pub enum Opcode { // 6.5
 	/// branchoffset = (branchbyte1 << 8) | branchbyte2
 	/// ```
 	/// Executions proceeds at that offset from the address of the opcode of this [Opcode::Goto] instruction.
-	Goto,
+	Goto { branchbyte1: u8, branchbyte2: u8 },
 	/// Branch always, wide index.
 	///
 	/// # Format
@@ -267,7 +320,7 @@ pub enum Opcode { // 6.5
 	/// branchoffset = (branchbyte1 << 24) | (branchbyte2 << 16) | (branchbyte3 << 8) | branchbyte4
 	/// ```
 	/// Executions proceeds at that offset from the address of the opcode of this [Opcode::GotoW] instruction.
-	GotoW,
+	GotoW { branchbyte1: u8, branchbyte2: u8, branchbyte3: u8, branchbyte4: u8 },
 	I2b,
 	I2c,
 	I2d,
@@ -285,8 +338,14 @@ pub enum Opcode { // 6.5
 	IfEq, IfGe, IfGt, IfLe, IfLt, IfNe,
 	IfNonNull, IfNull,
 	IInc,
-	ILoad,
-	ILoad0, ILoad1, ILoad2, ILoad3,
+	ILoad { index: u8 },
+	ILoad0,
+	/// See [Opcode::ILoad0].
+	ILoad1,
+	/// See [Opcode::ILoad0].
+	ILoad2,
+	/// See [Opcode::ILoad0].
+	ILoad3,
 	ImpDep1, ImpDep2,
 	IMul,
 	INeg,
@@ -301,8 +360,14 @@ pub enum Opcode { // 6.5
 	IReturn,
 	IShl,
 	IShr,
-	IStore,
-	IStore0, IStore1, IStore2, IStore3,
+	IStore { index: u8 },
+	IStore0,
+	/// See [Opcode::IStore0].
+	IStore1,
+	/// See [Opcode::IStore0].
+	IStore2,
+	/// See [Opcode::IStore0].
+	IStore3,
 	ISub,
 	IUShr,
 	IXor,
@@ -321,8 +386,14 @@ pub enum Opcode { // 6.5
 	LdcW,
 	Ldc2W,
 	LDiv,
-	LLoad,
-	LLoad0, LLoad1, LLoad2, LLoad3,
+	LLoad { index: u8 },
+	LLoad0,
+	/// See [Opcode::LLoad1].
+	LLoad1,
+	/// See [Opcode::LLoad1].
+	LLoad2,
+	/// See [Opcode::LLoad1].
+	LLoad3,
 	LMul,
 	LNeg,
 	LookupSwitch,
@@ -331,8 +402,14 @@ pub enum Opcode { // 6.5
 	LReturn,
 	LShl,
 	LShr,
-	LStore,
-	LStore0, LStore1, LStore2, LStore3,
+	LStore { index: u8 },
+	LStore0,
+	/// See [Opcode::LStore0].
+	LStore1,
+	/// See [Opcode::LStore0].
+	LStore2,
+	/// See [Opcode::LStore0].
+	LStore3,
 	LSub,
 	LUShr,
 	LXor,
@@ -379,10 +456,104 @@ pub enum Opcode { // 6.5
 	Return,
 	SALoad,
 	SAStore,
+	/// Push `short`
+	///
+	/// # Format
+	/// ```
+	/// SIPush
+	/// byte1
+	/// byte2
+	/// ```
+	///
+	/// # Operand Stack
+	/// ```
+	/// ... ->
+	/// ..., value: int
+	/// ```
+	///
+	/// # Description
+	/// The immediate unsigned `byte1` and `byte2` values are assembled into an intermediate `short` where the value of the `short` is `(byte1 << 8) | byte2`.
+	/// The intermediate value is then sign-extended to an `int` value. That value is pushed onto the operand stack.
 	SIPush,
+	/// Swap the top two operand stack values.
+	///
+	/// # Operand Stack
+	/// ```
+	/// ..., value2, value1 ->
+	/// ..., value1, value2
+	/// ```
+	///
+	/// # Description
+	/// This instruction must not be used unless `value1` and `value2` are both values of category 1 computational types.
+	///
+	/// # Notes
+	/// The JVM does not prove an instruction implementing swap for category 2 computational types.
 	Swap,
-	TableSwitch,
-	Wide,
+	/// Access jump table by index and jump.
+	///
+	/// # Format
+	/// ```
+	/// TableSwitch
+	/// <0-3 byte pad>
+	/// defaultbyte1
+	/// defaultbyte2
+	/// defaultbyte3
+	/// defaultbyte4
+	/// lowbyte1
+	/// lowbyte2
+	/// lowbyte3
+	/// lowbyte4
+	/// highbyte1
+	/// highbyte2
+	/// highbyte3
+	/// highbyte4
+	/// (
+	///   byte1
+	///   byte2
+	///   byte3
+	///   byte4
+	/// )*
+	/// ```
+	///
+	/// # Operand Stack
+	/// ```
+	/// ..., index: int ->
+	/// ...
+	/// ```
+	///
+	/// # Description
+	/// A [Opcode::TableSwitch] is a variable-length instruction. Immediately after the opcode, between zero and three bytes must act as padding, such that
+	/// `defaultbyte1` begins at an address that is a multiple of four bytes from the start of the current method (the opcode of its first instruction).
+	/// Immediately after the padding are bytes constituting three signed 32-bit values: `default`, `low`, and `high`. Immediately following are bytes
+	/// constituting a series of `high - low + 1` signed 32-bit offsets. The value `low` must be less than or equal to `high`. The `high - low + 1` signed
+	/// 32-bit offsets are treated as a 0-based jump table. Each of these signed 32-bit values is constructed as `(byte1 << 24) | (byte2 << 16) | (byte3 << 8)
+	/// | byte4`.
+	///
+	/// The index must be of type int and is popped from the operand stack. If `index` is less than `low` or `index` is greater than `high`, then a target
+	/// address is calculated by adding `default` to the address of the opcode of this [Opcode::TableSwitch] instruction. Otherwise, the offset at position
+	/// `index - low` of the jump table is extracted. The target address is calculated by adding that offset to the address of the opcode of this
+	/// [Opcode::TableSwitch] instruction. Execution then continues at the target address.
+	///
+	/// The target address that can be calculated from each jump table offset, as well as the one that can be calculated from `default`, must be the address
+	/// of an opcode of an instruction within the method that contains this [Opcode::TableSwitch] instruction.
+	TableSwitch {
+		defaultbyte1: u8, defaultbyte2: u8, defaultbyte3: u8, defaultbyte4: u8,
+		lowbyte1: u8, lowbyte2: u8, lowbyte3: u8, lowbyte4: u8,
+		highbyte1: u8, highbyte2: u8, highbyte3: u8, highbyte4: u8,
+		offsets: Vec<i32>, // [high - low + 1]
+	},
+	WideALoad  { indexbyte1: u8, indexbyte2: u8 },
+	WideAStore { indexbyte1: u8, indexbyte2: u8 },
+	WideDLoad  { indexbyte1: u8, indexbyte2: u8 },
+	WideDStore { indexbyte1: u8, indexbyte2: u8 },
+	WideFLoad  { indexbyte1: u8, indexbyte2: u8 },
+	WideFStore { indexbyte1: u8, indexbyte2: u8 },
+	WideILoad  { indexbyte1: u8, indexbyte2: u8 },
+	WideIStore { indexbyte1: u8, indexbyte2: u8 },
+	WideLLoad  { indexbyte1: u8, indexbyte2: u8 },
+	WideLStore { indexbyte1: u8, indexbyte2: u8 },
+	WideRet    { indexbyte1: u8, indexbyte2: u8 },
+	WideIInc   { indexbyte1: u8, indexbyte2: u8, constbyte1: u8, constbyte2: u8 },
 }
 
 impl Opcode {
@@ -407,15 +578,15 @@ impl TryFrom<u8> for Opcode {
 			0x32 => Ok(Opcode::AALoad),
 			0x53 => Ok(Opcode::AAStore),
 			0x01 => Ok(Opcode::AConstNull),
-			0x19 => Ok(Opcode::ALoad),
+			0x19 => todo!(), // Ok(Opcode::ALoad),
 			0x2a => Ok(Opcode::ALoad0),
 			0x2b => Ok(Opcode::ALoad1),
 			0x2c => Ok(Opcode::ALoad2),
 			0x2d => Ok(Opcode::ALoad3),
-			0xbd => Ok(Opcode::ANewArray),
+			0xbd => todo!(), // Ok(Opcode::ANewArray),
 			0xb0 => Ok(Opcode::AReturn),
 			0xbe => Ok(Opcode::ArrayLength),
-			0x3a => Ok(Opcode::AStore),
+			0x3a => todo!(), // Ok(Opcode::AStore),
 			0x4b => Ok(Opcode::AStore0),
 			0x4c => Ok(Opcode::AStore1),
 			0x4d => Ok(Opcode::AStore2),
@@ -439,7 +610,7 @@ impl TryFrom<u8> for Opcode {
 			0x0e => Ok(Opcode::DConst0),
 			0x0f => Ok(Opcode::DConst1),
 			0x6f => Ok(Opcode::DDiv),
-			0x18 => Ok(Opcode::DLoad),
+			0x18 => todo!(), // Ok(Opcode::DLoad),
 			0x26 => Ok(Opcode::DLoad0),
 			0x27 => Ok(Opcode::DLoad1),
 			0x28 => Ok(Opcode::DLoad2),
@@ -448,7 +619,7 @@ impl TryFrom<u8> for Opcode {
 			0x77 => Ok(Opcode::DNeg),
 			0x73 => Ok(Opcode::DRem),
 			0xaf => Ok(Opcode::DReturn),
-			0x39 => Ok(Opcode::DStore),
+			0x39 => todo!(), // Ok(Opcode::DStore),
 			0x47 => Ok(Opcode::DStore0),
 			0x48 => Ok(Opcode::DStore1),
 			0x49 => Ok(Opcode::DStore2),
@@ -472,7 +643,7 @@ impl TryFrom<u8> for Opcode {
 			0x0c => Ok(Opcode::FConst1),
 			0x0d => Ok(Opcode::FConst2),
 			0x6e => Ok(Opcode::FDiv),
-			0x17 => Ok(Opcode::FLoad),
+			0x17 => todo!(), // Ok(Opcode::FLoad),
 			0x22 => Ok(Opcode::FLoad0),
 			0x23 => Ok(Opcode::FLoad1),
 			0x24 => Ok(Opcode::FLoad2),
@@ -481,7 +652,7 @@ impl TryFrom<u8> for Opcode {
 			0x76 => Ok(Opcode::FNeg),
 			0x72 => Ok(Opcode::FRem),
 			0xae => Ok(Opcode::FReturn),
-			0x38 => Ok(Opcode::FStore),
+			0x38 => todo!(), // Ok(Opcode::FStore),
 			0x43 => Ok(Opcode::FStore0),
 			0x44 => Ok(Opcode::FStore1),
 			0x45 => Ok(Opcode::FStore2),
@@ -489,8 +660,8 @@ impl TryFrom<u8> for Opcode {
 			0x66 => Ok(Opcode::FSub),
 			0xb4 => Ok(Opcode::GetField),
 			0xb2 => Ok(Opcode::GetStatic),
-			0xa7 => Ok(Opcode::Goto),
-			0xc8 => Ok(Opcode::GotoW),
+			0xa7 => todo!(), // Ok(Opcode::Goto),
+			0xc8 => todo!(), // Ok(Opcode::GotoW),
 			0x91 => Ok(Opcode::I2b),
 			0x92 => Ok(Opcode::I2c),
 			0x87 => Ok(Opcode::I2d),
@@ -526,7 +697,7 @@ impl TryFrom<u8> for Opcode {
 			0xc7 => Ok(Opcode::IfNonNull),
 			0xc6 => Ok(Opcode::IfNull),
 			0x84 => Ok(Opcode::IInc),
-			0x15 => Ok(Opcode::ILoad),
+			0x15 => todo!(), // Ok(Opcode::ILoad),
 			0x1a => Ok(Opcode::ILoad0),
 			0x1b => Ok(Opcode::ILoad1),
 			0x1c => Ok(Opcode::ILoad2),
@@ -546,7 +717,7 @@ impl TryFrom<u8> for Opcode {
 			0xac => Ok(Opcode::IReturn),
 			0x78 => Ok(Opcode::IShl),
 			0x7a => Ok(Opcode::IShr),
-			0x36 => Ok(Opcode::IStore),
+			0x36 => todo!(), // Ok(Opcode::IStore),
 			0x3b => Ok(Opcode::IStore0),
 			0x3c => Ok(Opcode::IStore1),
 			0x3d => Ok(Opcode::IStore2),
@@ -570,7 +741,7 @@ impl TryFrom<u8> for Opcode {
 			0x13 => Ok(Opcode::LdcW),
 			0x14 => Ok(Opcode::Ldc2W),
 			0x6d => Ok(Opcode::LDiv),
-			0x16 => Ok(Opcode::LLoad),
+			0x16 => todo!(), // Ok(Opcode::LLoad),
 			0x1e => Ok(Opcode::LLoad0),
 			0x1f => Ok(Opcode::LLoad1),
 			0x20 => Ok(Opcode::LLoad2),
@@ -583,7 +754,7 @@ impl TryFrom<u8> for Opcode {
 			0xad => Ok(Opcode::LReturn),
 			0x79 => Ok(Opcode::LShl),
 			0x7b => Ok(Opcode::LShr),
-			0x37 => Ok(Opcode::LStore),
+			0x37 => todo!(), // Ok(Opcode::LStore),
 			0x3f => Ok(Opcode::LStore0),
 			0x40 => Ok(Opcode::LStore1),
 			0x41 => Ok(Opcode::LStore2),
@@ -607,8 +778,8 @@ impl TryFrom<u8> for Opcode {
 			0x56 => Ok(Opcode::SAStore),
 			0x11 => Ok(Opcode::SIPush),
 			0x5f => Ok(Opcode::Swap),
-			0xaa => Ok(Opcode::TableSwitch),
-			0xc4 => Ok(Opcode::Wide),
+			0xaa => todo!(), // Ok(Opcode::TableSwitch),
+			0xc4 => todo!(), // Ok(Opcode::Wide),
 			_ => Err(Error::UnknownOpcode(value)),
 		}
 	}

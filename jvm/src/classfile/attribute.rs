@@ -2,7 +2,8 @@ use std::io::Read;
 use itertools::{Either, Itertools};
 use crate::class_instance::ClassData;
 use crate::classfile::{ClassInfo, ConstantPool, ConstantPoolElement, DoubleInfo, FloatInfo, IntegerInfo, LongInfo, MethodHandleInfo, MethodTypeInfo, NameAndTypeInfo, parse_u1, parse_u1_as_usize, parse_u2, parse_u2_as_usize, parse_u4, parse_u4_as_usize, parse_vec, StringInfo, Utf8Info};
-use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
+use crate::code::Code;
+use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError, OutOfBoundsError};
 
 fn check_attribute_length<R: Read>(reader: &mut R, length: u32) -> Result<(), ClassFileParseError> {
 	let len = parse_u4(reader)?;
@@ -47,6 +48,7 @@ impl ConstantValueAttribute {
 pub struct CodeAttribute { // 4.7.3
 	pub max_stack: u16,
 	pub max_locals: u16,
+	pub code_: Code,
 	pub code: Vec<u8>,
 	pub exception_table: Vec<ExceptionTableEntry>,
 	pub attributes: Vec<AttributeInfo>,
@@ -120,6 +122,7 @@ impl CodeAttribute {
 		Ok(CodeAttribute {
 			max_stack,
 			max_locals,
+			code_: Code::parse(code.clone())?,
 			code,
 			exception_table,
 			attributes,
