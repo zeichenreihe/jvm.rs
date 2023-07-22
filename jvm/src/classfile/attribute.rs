@@ -1,5 +1,6 @@
 use std::io::Read;
 use itertools::{Either, Itertools};
+use crate::class_instance::ClassData;
 use crate::classfile::{ClassInfo, ConstantPool, ConstantPoolElement, DoubleInfo, FloatInfo, IntegerInfo, LongInfo, MethodHandleInfo, MethodTypeInfo, NameAndTypeInfo, parse_u1, parse_u1_as_usize, parse_u2, parse_u2_as_usize, parse_u4, parse_u4_as_usize, parse_vec, StringInfo, Utf8Info};
 use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
 

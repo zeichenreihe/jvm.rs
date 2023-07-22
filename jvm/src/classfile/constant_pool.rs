@@ -180,19 +180,20 @@ impl Display for StringInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CpInfoInteger {
-	bytes: u32,
+	bytes: i32,
 }
 impl CpInfoInteger {
 	fn parse<R: Read>(reader: &mut R) -> Result<CpInfoInteger, ClassFileParseError> {
+		let bytes = parse_u4(reader)?;
 		Ok(Self {
-			bytes: parse_u4(reader)?,
+			bytes: bytes as i32,
 		})
 	}
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IntegerInfo {
-	bytes: u32,
+	pub bytes: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -272,7 +273,7 @@ impl CpInfoNameAndType {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct NameAndTypeInfo {
 	pub name: Utf8Info,
 	pub descriptor: Utf8Info,

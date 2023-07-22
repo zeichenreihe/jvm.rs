@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
+use std::rc::Rc;
+use itertools::Itertools;
 use crate::class_instance::{Class, Field};
-use crate::classfile::{ClassFile, ClassInfo};
+use crate::classfile::{ClassFile, ClassInfo, FieldInfo, NameAndTypeInfo};
 use crate::errors::{ClassFileParseError, ClassLoadError};
 use crate::types::descriptor::FieldDescriptor;
 
@@ -62,7 +64,7 @@ impl ClassesSource {
 #[derive(Debug)]
 pub struct ClassLoader {
 	pub sources: Vec<ClassesSource>,
-	classes: HashMap<ClassInfo, Class>,
+	classes: HashMap<ClassInfo, Rc<Class>>,
 }
 
 impl ClassLoader {
@@ -95,36 +97,78 @@ impl ClassLoader {
 			0
 		};
 
-		let mut field_offset = 0;
-		let fields = class_file.fields.iter()
-			.map(|field| {
+		let (static_fields, non_static_fields): (Vec<&FieldInfo>, Vec<&FieldInfo>) = class_file.fields.iter()
+			.partition(|field| field.access_flags.is_static);
+
+		let mut non_static_field_offset = 0;
+		let non_static_fields: HashMap<_, _> = non_static_fields.iter()
+			.map(|&field| {
 				let descriptor = FieldDescriptor::parse(&field.descriptor).unwrap(); // TODO: panic, fix this
 				let size = descriptor.base_or_object_type.get_size() * 4;
 				let f = Field {
 					descriptor,
 					size,
-					field_offset,
+					field_offset: non_static_field_offset,
+					field: field.clone(),
 				};
-				field_offset += size;
-				f
+				non_static_field_offset += size;
+				(
+					NameAndTypeInfo {
+						name: field.name.clone(),
+						descriptor: field.descriptor.clone(),
+					},
+					f
+				)
 			})
 			.collect();
 
-		let class = Class {
+		let mut static_field_offset = 0;
+
+		let static_fields: HashMap<_, _> = static_fields.iter()
+			.map(|&field| {
+				let descriptor = FieldDescriptor::parse(&field.descriptor).unwrap(); // TODO: panic, fix this
+				let size = descriptor.base_or_object_type.get_size() * 4;
+				let f = Field {
+					descriptor,
+					size,
+					field_offset: static_field_offset,
+					field: field.clone(),
+				};
+				static_field_offset += size;
+				(
+					NameAndTypeInfo {
+						name: field.name.clone(),
+						descriptor: field.descriptor.clone(),
+					},
+					f
+				)
+			})
+			.collect();
+
+		let mut class = Class {
 			super_class_size,
-			class_size: field_offset,
+			class_size: non_static_field_offset,
 			class: class_file.clone(),
-			fields,
+			non_static_fields,
+			static_fields: static_fields.clone(),
+			static_data: vec![0x8E; static_field_offset],
 		};
+
+		for (_, field) in static_fields {
+			// read the ConstantValue attribute
+			field.store_initial_value(&mut class).unwrap();
+		}
+
+		// TODO: call <clinit>
 
 		Ok(class)
 	}
 
-	pub fn get(&mut self, class_name: &ClassInfo) -> Result<&Class, ClassLoadError> {
+	pub fn get(&mut self, class_name: &ClassInfo) -> Result<&Rc<Class>, ClassLoadError> {
 		self.get_checked(class_name, &mut Vec::new())
 	}
 
-	fn get_checked(&mut self, class_name: &ClassInfo, currently_loading: &mut Vec<ClassInfo>) -> Result<&Class, ClassLoadError> {
+	fn get_checked(&mut self, class_name: &ClassInfo, currently_loading: &mut Vec<ClassInfo>) -> Result<&Rc<Class>, ClassLoadError> {
 		if !self.classes.contains_key(class_name) {
 
 			// Let C be a class that we try to load. This loading can load other classes, say C_1, C_2, C_3 and so on. To ensure that such a class isn't the
@@ -138,7 +182,7 @@ impl ClassLoader {
 			currently_loading.push(class_name.clone());
 
 			let class = self.load(&class_name, currently_loading)?;
-			self.classes.insert(class_name.clone(), class);
+			self.classes.insert(class_name.clone(), Rc::new(class));
 
 			// TODO: don't let this panic, throw some useful exception!
 			assert_eq!(&currently_loading.pop().unwrap(), class_name);

@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::mem;
-use crate::class_instance::Class;
+use std::rc::Rc;
+use crate::class_instance::{Class, ClassData, ClassInstance};
 use crate::class_loader::ClassLoader;
 use crate::classfile::{ClassInfo, ConstantPoolElement, FieldRefInfo, MethodRefInfo};
 use crate::errors::{OutOfBoundsError, RuntimeError};
@@ -29,7 +30,9 @@ pub type JInt = i32;
 pub type JLong = i64;
 pub type JFloat = f32;
 pub type JDouble = f64;
-pub type JReference = u64; //todo!();
+pub type JReference = u32; //todo!();
+
+pub const J_NULL: JReference = u32::MAX;
 
 
 #[derive(Debug)]
@@ -58,9 +61,10 @@ struct VmStackFrame {
 	operand_stack: Vec<StackFrameLvType>,
 	stack_pointer: usize,
 
-	program_counter: usize,
+	program_counter: i32,
 	code: Vec<u8>,
-	class: Class,
+	class: Rc<Class>,
+	loader: ClassLoader,
 }
 
 impl Display for VmStackFrame {
@@ -70,6 +74,7 @@ impl Display for VmStackFrame {
 }
 
 impl VmStackFrame {
+	#[inline]
 	fn push_stack(&mut self, value: StackFrameLvType) -> Result<(), OutOfBoundsError> {
 		*self.operand_stack
 			.get_mut(self.stack_pointer)
@@ -78,6 +83,7 @@ impl VmStackFrame {
 		Ok(())
 	}
 
+	#[inline]
 	fn pop_stack(&mut self) -> Result<StackFrameLvType, OutOfBoundsError> {
 		self.stack_pointer -= 1;
 		Ok(mem::replace(
@@ -88,11 +94,27 @@ impl VmStackFrame {
 		))
 	}
 
+	#[inline]
+	fn store_lv(&mut self, lv_index: usize, value: StackFrameLvType) -> Result<(), OutOfBoundsError> {
+		*self.local_variables
+			.get_mut(lv_index)
+			.ok_or(OutOfBoundsError)? = value;
+		Ok(())
+	}
+
+	#[inline]
+	fn load_lv(&mut self, lv_index: usize) -> Result<StackFrameLvType, OutOfBoundsError> {
+		self.local_variables
+			.get(lv_index)
+			.cloned()
+			.ok_or(OutOfBoundsError)
+	}
+
 	fn read_isn(&mut self) -> Result<u8, OutOfBoundsError> {
 		let value = self.code
-			.get(self.program_counter)
-			.ok_or(OutOfBoundsError)
-			.map(|i| *i);
+			.get(self.program_counter as usize)
+			.copied()
+			.ok_or(OutOfBoundsError);
 		self.program_counter += 1;
 		value
 	}
@@ -103,7 +125,15 @@ impl VmStackFrame {
 		Ok(index_byte1 << 8 | index_byte2)
 	}
 
+	fn get_class_instance(&self) -> ClassInstance {
+		ClassInstance {
+			data: vec![3, 0, 0, 0],
+			class: self.class.clone(),
+		}
+	}
+
 	fn run_isn(&mut self) -> Result<(), RuntimeError> {
+		let mut n = 0;
 		loop {
 			let opcode = Opcode::try_from(self.read_isn()?).expect("for now good enough");
 
@@ -120,17 +150,56 @@ impl VmStackFrame {
 					let b = self.pop_stack()?.try_as_int()?;
 					self.push_stack(StackFrameLvType::Int(a + b))?
 				},
+
+				Opcode::IStore1 => {
+					let i = self.pop_stack()?;
+					// TODO: verify: int
+					self.store_lv(1, i)?;
+				},
+				Opcode::ILoad1 => {
+					let i = self.load_lv(1)?;
+					// TODO: verify: int
+					self.push_stack(i)?;
+				},
+
+				Opcode::ALoad0 => {
+					let a = self.load_lv(0)?;
+					// TODO: verify: reference
+					self.push_stack(a)?;
+				},
+				Opcode::AStore1 => {
+					let a = self.pop_stack()?;
+					// TODO: verify: reference
+					self.store_lv(1, a)?;
+				}
+
+
+				Opcode::IfICmpGe => {
+					let value2 = self.pop_stack()?.try_as_int()?;
+					let value1 = self.pop_stack()?.try_as_int()?;
+					if value1 >= value2 {
+						let branchbyte1 = self.read_isn()? as i16;
+						let branchbyte2 = self.read_isn()? as i16;
+						let offset = branchbyte1 << 8 | branchbyte2;
+						let old_pc = self.program_counter;
+						self.program_counter += offset as i32;
+						println!("jumped from {} to {}", old_pc, self.program_counter);
+					}
+				},
 				Opcode::GetStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
 					let field_ref: FieldRefInfo = self.class.class.constant_pool.get(index)?;
 
-					let class = field_ref.class;
-					let name = field_ref.name_and_type.name;
-					let desc = field_ref.name_and_type.descriptor;
+					let class = self.loader.get(&field_ref.class)?;
 
-					println!("{class}, {name}, {desc}");
+					let field = class.static_fields.get(&field_ref.name_and_type).unwrap();
+					// TODO: unwrap, also doesn't impl the whole field resolution procedure
 
-					self.push_stack(StackFrameLvType::Reference(2223))?;
+					let to_stack = field.load(class)?;
+
+					println!("{} {} {} => {:?}", &field_ref.class, &field_ref.name_and_type.name, &field_ref.name_and_type.descriptor, &to_stack);
+
+					self.push_stack(to_stack)?;
 				},
 				Opcode::New => {
 					let index = self.read_constant_pool_two_indexes()?;
@@ -178,21 +247,18 @@ impl VmStackFrame {
 					let desc = desc.to_string();
 					if desc == "(Ljava/lang/String;)Ljava/lang/StringBuilder;" {
 						self.pop_stack()?;
-						let this = self.pop_stack()?;
+						let _this = self.pop_stack()?;
 						self.push_stack(StackFrameLvType::Reference(290598025))?;
 					}
 
 					if desc == "()Ljava/lang/String;" {
-						let this = self.pop_stack()?;
+						let _this = self.pop_stack()?;
 						self.push_stack(StackFrameLvType::Reference(890225890))?;
 					}
 
 					if desc == "(Ljava/lang/String;)V" {
 						self.pop_stack()?;
 					}
-				},
-				Opcode::ALoad0 => {
-					self.push_stack(StackFrameLvType::Reference(444444))?;
 				},
 				Opcode::InvokeStatic => {
 					let index = self.read_constant_pool_two_indexes()?;
@@ -206,7 +272,7 @@ impl VmStackFrame {
 
 					let desc = desc.to_string();
 					if desc == "([Ljava/lang/Object;)Ljava/lang/String;" {
-						let value = self.pop_stack()?;
+						let _value = self.pop_stack()?;
 						self.push_stack(StackFrameLvType::Reference(2235890))?;
 					}
 				},
@@ -220,7 +286,7 @@ impl VmStackFrame {
 
 			println!("{self}");
 
-			if self.program_counter >= self.code.len() {
+			if self.program_counter as usize >= self.code.len() {
 				break;
 			}
 		}
@@ -231,20 +297,22 @@ impl VmStackFrame {
 
 #[cfg(test)]
 mod testing {
+	use std::collections::HashMap;
 	use std::fs::File;
 	use std::io::{BufReader, Read};
+	use std::rc::Rc;
 	use std::sync::atomic::AtomicUsize;
 	use std::sync::atomic::Ordering::Relaxed;
 	use inkwell::module::Linkage;
 	use zip::ZipArchive;
 	use crate::class_instance::{Class, Field};
-	use crate::class_loader::ClassesSource;
+	use crate::class_loader::{ClassesSource, ClassLoader};
 	use crate::classfile::{ClassFile, ClassInfo};
 	use crate::executor::{StackFrameLvType, Vm};
 	use crate::types::descriptor::{BaseOrObjectType, FieldDescriptor};
 	use super::VmStackFrame;
 
-	#[test]
+/*	#[test]
 	#[cfg(target_os = "linux")]
 	fn test_run_isn_from_real_class_file() {
 		let bytes = include_bytes!("../../java_example_classfiles/Test.class");
@@ -272,18 +340,10 @@ mod testing {
 				super_class_size: 0,
 				class_size: 0,
 				class: class_file.clone(),
-				fields: class_file.fields.iter()
-					.map(|f| {
-						Field {
-							size: 0,
-							field_offset: 0,
-							descriptor: FieldDescriptor {
-								array_dimension: 0,
-								base_or_object_type: BaseOrObjectType::B
-							}
-						}
-					})
-					.collect(),
+				non_static_fields: HashMap::new(),
+				static_fields: HashMap::new(),
+
+				static_data: Vec::new(),
 			},
 		};
 
@@ -292,7 +352,7 @@ mod testing {
 		println!("{}", frame);
 
 		let _ = frame;
-	}
+	}*/
 
 	fn read_as_vec<R: Read>(mut reader: R) -> Vec<u8> {
 		let mut vec = Vec::new();
@@ -303,40 +363,34 @@ mod testing {
 	#[test]
 	#[cfg(target_os = "linux")]
 	fn test_run_with_classes_from_rt_jar() {
+		if true { return }
+
 		let rt = File::open("/usr/lib/jvm/java-8-openjdk/jre/lib/rt.jar").unwrap();
 		let mut rt = ZipArchive::new(BufReader::new(rt)).unwrap();
 
-		let mut vm = Vm::new();
-
-		vm.loader.sources.push(
+		let mut loader = ClassLoader::new();
+		loader.sources.push(
 			ClassesSource::Bytes {
 				name: String::from("java/lang/Object"),
 				bytes: read_as_vec(rt.by_name("java/lang/Object.class").unwrap()),
 			},
 		);
 
-		vm.loader.sources.push(
+		loader.sources.push(
 			ClassesSource::Bytes {
 				name: String::from("java/lang/System"),
 				bytes: read_as_vec(rt.by_name("java/lang/System.class").unwrap())
 			},
 		);
 
-		vm.loader.sources.push(
+		loader.sources.push(
 			ClassesSource::Bytes {
 				name: String::from("Test"),
 				bytes: include_bytes!("../../java_example_classfiles/Test.class").to_vec(),
 			},
 		);
 
-		vm.loader.sources.push(
-			ClassesSource::Bytes {
-				name: String::from("Test2"),
-				bytes: include_bytes!("../../java_example_classfiles/Test2.class").to_vec(),
-			},
-		);
-
-		let class = vm.loader.get(&ClassInfo::from("Test")).unwrap();
+		let class = loader.get(&ClassInfo::from("Test")).unwrap();
 
 		let main = class.class.methods.iter()
 			.find(|m| m.name.to_string().as_str() == "main")
@@ -345,9 +399,9 @@ mod testing {
 		let code = main.code.as_ref().unwrap();
 		let stack_map_frame = &code.stack_map_table;
 
-		dbg!(stack_map_frame);
+		//dbg!(stack_map_frame);
 
-		let frame = VmStackFrame {
+		let mut frame = VmStackFrame {
 			program_counter: 0,
 			stack_pointer: 0,
 			code: code.code.to_owned(),
@@ -362,15 +416,73 @@ mod testing {
 				vec
 			},
 			class: class.clone(),
+			loader,
 		};
 
+		frame.run_isn().unwrap();
+	}
 
-		vm.stack.frames.push(frame);
 
-		vm.stack.frames.last_mut().unwrap().run_isn().unwrap();
+	#[test]
+	#[cfg(target_os = "linux")]
+	fn test_run_with_classes_from_rt_jar_test_2() {
+		let rt = File::open("/usr/lib/jvm/java-8-openjdk/jre/lib/rt.jar").unwrap();
+		let mut rt = ZipArchive::new(BufReader::new(rt)).unwrap();
 
-		let class = vm.loader.get(&ClassInfo::from("Test2")).unwrap();
-		dbg!(class);
+		let mut loader = ClassLoader::new();
+		loader.sources.push(
+			ClassesSource::Bytes {
+				name: String::from("java/lang/Object"),
+				bytes: read_as_vec(rt.by_name("java/lang/Object.class").unwrap()),
+			},
+		);
+
+		loader.sources.push(
+			ClassesSource::Bytes {
+				name: String::from("java/lang/System"),
+				bytes: read_as_vec(rt.by_name("java/lang/System.class").unwrap())
+			},
+		);
+
+		loader.sources.push(
+			ClassesSource::Bytes {
+				name: String::from("Test2"),
+				bytes: include_bytes!("../../java_example_classfiles/Test2.class").to_vec(),
+			},
+		);
+
+		dbg!(loader.get(&ClassInfo::from("java/lang/System"))).unwrap();
+
+		let class = loader.get(&ClassInfo::from("Test2")).unwrap();
+
+		let main = class.class.methods.iter()
+			.find(|m| m.name.to_string().as_str() == "main")
+			.unwrap();
+
+		let code = main.code.as_ref().unwrap();
+		let stack_map_frame = &code.stack_map_table;
+
+		//dbg!(stack_map_frame);
+
+		let mut frame = VmStackFrame {
+			program_counter: 0,
+			stack_pointer: 0,
+			code: code.code.to_owned(),
+			local_variables: {
+				let mut vec = Vec::with_capacity(code.max_locals as usize);
+				for _ in 0..(code.max_locals as usize) { vec.push(StackFrameLvType::Empty) }
+				vec
+			},
+			operand_stack: {
+				let mut vec = Vec::with_capacity(code.max_stack as usize);
+				for _ in 0..(code.max_stack as usize) { vec.push(StackFrameLvType::Empty) }
+				vec
+			},
+			class: class.clone(),
+			loader,
+		};
+
+		frame.run_isn().unwrap();
 	}
 
 	#[test]

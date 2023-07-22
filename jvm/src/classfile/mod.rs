@@ -110,18 +110,25 @@ pub struct FieldInfo { // 4.5
 	pub name: Utf8Info,
 	pub descriptor: Utf8Info,
 	pub attributes: Vec<AttributeInfo>,
+	pub constant_value: Option<ConstantValueAttribute>,
 }
 
 impl FieldInfo {
 	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
+		let access_flags = FieldInfoAccess::parse(parse_u2(reader)?)?;
+		let name = constant_pool.parse_index(reader)?;
+		let descriptor = constant_pool.parse_index(reader)?;
+		let attributes = parse_vec(reader, parse_u2_as_usize, |r| AttributeInfo::parse(r, constant_pool))?;
+
+		let (constant_values, attributes): (Vec<ConstantValueAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
+			.partition_map(|attribute| match attribute {
+				AttributeInfo::ConstantValue(constant_value) => Either::Left(constant_value),
+				other => Either::Right(other),
+			});
+		let constant_value = constant_values.iter().next().cloned();
+
 		Ok(FieldInfo {
-			access_flags: FieldInfoAccess::parse(parse_u2(reader)?)?,
-			name: constant_pool.parse_index(reader)?,
-			descriptor: constant_pool.parse_index(reader)?,
-			attributes: parse_vec(reader,
-			    parse_u2_as_usize,
-			    |r| AttributeInfo::parse(r, constant_pool),
-			)?,
+			access_flags, name, descriptor, attributes, constant_value,
 		})
 	}
 }
