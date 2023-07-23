@@ -1,0 +1,166 @@
+public class Test3 extends java/lang/Object {
+	static counter I
+
+	private <init>()V {
+		aload 0
+		invokespecial java/lang/Object.<init>()V
+		return
+	}
+
+	private static println(java/lang/String)V {
+		getstatic java/lang/System.out java/io/PrintStream
+		aload 0
+		invokevirtual java/io/PrintStream.println(java/lang/String)V
+		return
+	}
+	private static println(java/lang/String)I {
+		iconst 3
+		ireturn
+	}
+	private static println([I)V {
+        	getstatic java/lang/System.out java/io/PrintStream
+		aload 0
+        	invokestatic java/util/Arrays.toString([I)java/lang/String
+		invokevirtual java/io/PrintStream.println(java/lang/String)V
+		return
+	}
+
+	private static evil(I)V {
+		ldc "evil"
+		invokestatic Test3.println(java/lang/String)V
+        	return
+	}
+
+	public static main([java/lang/String)V {
+	ex_1:
+		exception ex_1, ex_1_e, ex_2, java/lang/NullPointerException
+		ldc "aaload on null"
+		invokestatic Test3.println(java/lang/String)V
+		aconst_null
+		iconst 0
+		aaload // same with aastore
+		pop
+	ex_1_e:
+		aconst_null
+	ex_2:
+		exception ex_2, ex_2_e, ex_3, java/lang/ArrayIndexOutOfBoundsException
+		pop
+		ldc "aaload on -1"
+		invokestatic Test3.println(java/lang/String)V
+		iconst 0
+		anewarray java/lang/String
+		iconst -1
+		aaload // same with aastore
+		pop
+	ex_2_e:
+		aconst_null
+	ex_3:
+		exception ex_3, ex_3_e, ex_4, java/lang/NegativeArraySizeException
+		pop
+		ldc "anewarray on -1"
+		invokestatic Test3.println(java/lang/String)V
+		iconst -1
+		anewarray java/lang/String
+		pop
+	ex_3_e:
+		aconst_null
+	ex_4:
+		exception ex_4, ex_4_e, ex_5, java/lang/NullPointerException
+		pop
+		ldc "arraylength on null"
+		invokestatic Test3.println(java/lang/String)V
+		aconst_null
+		arraylength
+		pop
+	ex_4_e:
+		aconst_null
+	ex_5:
+		exception ex_5, ex_5_e, ex_6, java/lang/NullPointerException
+		pop
+		ldc "athrow on null"
+		invokestatic Test3.println(java/lang/String)V
+		aconst_null
+		athrow
+	ex_5_e:
+		aconst_null
+	ex_6:
+		exception ex_6, ex_6_e, ex_7, java/lang/NullPointerException
+		pop
+		ldc "monitorenter on null"
+		invokestatic Test3.println(java/lang/String)V
+		aconst_null
+		monitorenter
+	ex_6_e:
+		aconst_null
+	ex_7:
+		exception ex_7, ex_7_e, ex_8, java/lang/NullPointerException
+		pop
+		ldc "monitorexit on null"
+		invokestatic Test3.println(java/lang/String)V
+		aconst_null
+		monitorexit
+	ex_7_e:
+		aconst_null
+	ex_8:
+		exception ex_8, ex_8_e, ex_9, java/lang/NegativeArraySizeException
+		pop
+		ldc "newarray on -1"
+		invokestatic Test3.println(java/lang/String)V
+		iconst -1
+		newarray I
+		pop
+	ex_8_e:
+		aconst_null
+	ex_9:
+		exception ex_9, ex_9_e, ex_10, java/lang/ClassCastException
+		pop
+		ldc "checkcast on wrong types"
+		invokestatic Test3.println(java/lang/String)V
+		// todo: impl
+	ex_9_e:
+		aconst_null
+	ex_10:
+		exception ex_10, ex_10_e, ex_11, java/lang/ArithmeticException
+		pop
+		ldc "1 / 0"
+		invokestatic Test3.println(java/lang/String)V
+		// same for long
+		iconst 1
+		iconst 0
+		idiv
+		pop
+	ex_10_e:
+		aconst_null
+	ex_11:
+		exception ex_11, ex_11_e, ex_12, java/lang/ArithmeticException
+		pop
+		ldc "1 % 0"
+		invokestatic Test3.println(java/lang/String)V
+		// same for long
+		iconst 1
+		iconst 0
+		irem
+		pop
+	ex_11_e:
+		aconst_null
+	ex_12:
+		exception ex_12, ex_12_e, ex_13, java/lang/NegativeArraySizeException
+		pop
+		ldc "multianewarray on 1, -1, 0, -1"
+		invokestatic Test3.println(java/lang/String)V
+		// throws a NegativeArraySizeException
+		iconst 1
+		iconst -1
+		iconst 0
+		iconst -1
+		multianewarray [[[[java/lang/String
+		pop
+	ex_12_e:
+		aconst_null
+	ex_13:
+		pop
+		iconst 2
+       		invokestatic Test3.evil(I)V
+       		return
+	}
+}
