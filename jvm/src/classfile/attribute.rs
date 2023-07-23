@@ -86,7 +86,10 @@ impl CodeAttribute {
 				AttributeInfo::LineNumberTable(line_number_table) => Either::Left(line_number_table),
 				other => Either::Right(other),
 			});
-		let line_number_table = line_number_tables.into_iter().next();
+		let line_number_table = match line_number_tables.into_iter().next() {
+			Some(line_number_table) => Some(line_number_table.map_pc(&code.pc_map)?),
+			None => None,
+		};
 
 		// LocalVariableTableAttribute
 		let (local_variable_tables, attributes): (Vec<LocalVariableTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
@@ -94,7 +97,10 @@ impl CodeAttribute {
 				AttributeInfo::LocalVariableTable(local_variable_table) => Either::Left(local_variable_table),
 				other => Either::Right(other),
 			});
-		let local_variable_table = local_variable_tables.into_iter().next();
+		let local_variable_table = match local_variable_tables.into_iter().next() {
+			Some(local_variable_table) => Some(local_variable_table.map_pc(&code.pc_map)?),
+			None => None,
+		};
 
 		// LocalVariableTypeTableAttribute
 		let (local_variable_type_tables, attributes): (Vec<LocalVariableTypeTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
@@ -102,7 +108,10 @@ impl CodeAttribute {
 				AttributeInfo::LocalVariableTypeTable(local_variable_type_table) => Either::Left(local_variable_type_table),
 				other => Either::Right(other),
 			});
-		let local_variable_type_table = local_variable_type_tables.into_iter().next();
+		let local_variable_type_table = match local_variable_type_tables.into_iter().next() {
+			Some(local_variable_type_table) => Some(local_variable_type_table.map_pc(&code.pc_map)?),
+			None => None
+		};
 
 		// StackMapTableAttribute
 		let (stack_map_tables, attributes): (Vec<StackMapTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
@@ -117,6 +126,7 @@ impl CodeAttribute {
 			.unwrap_or_else(|| StackMapTableAttribute {
 				entries: Vec::new(),
 			});
+		let stack_map_table = stack_map_table.map_pc(&code.pc_map)?;
 
 		Ok(CodeAttribute {
 			max_stack,
@@ -124,10 +134,10 @@ impl CodeAttribute {
 			code,
 			exception_table,
 			attributes,
-			line_number_table, // <- still to change pc numbers
-			local_variable_table, // <- still to change pc numbers
-			local_variable_type_table, // <- still to change pc numbers
-			stack_map_table, // <- still to change pc numbers
+			line_number_table,
+			local_variable_table,
+			local_variable_type_table,
+			stack_map_table,
 		})
 	}
 }
@@ -163,6 +173,10 @@ impl StackMapTableAttribute {
 				|r| StackMapFrame::parse(r, constant_pool)
 			)?,
 		})
+	}
+
+	fn map_pc(self, pc_map: &PcMap) -> Result<StackMapTableAttribute, ClassFileParseError> {
+		Ok(self) // TODO: stack map frames lie. this is why
 	}
 }
 
@@ -395,17 +409,22 @@ impl LineNumberTableAttribute {
 			)?,
 		})
 	}
+
+	fn map_pc(mut self, pc_map: &PcMap) -> Result<LineNumberTableAttribute, ClassFileParseError> {
+		self.line_number_table.iter_mut().for_each(|e| e.start_pc = pc_map.map(e.start_pc).unwrap()); // TODO: panic!
+		Ok(self)
+	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LineNumberTableEntry { // 4.7.12, line_number_table
-	start_pc: u16,
+	start_pc: usize,
 	line_number: u16,
 }
 impl LineNumberTableEntry {
 	fn parse<R: Read>(reader: &mut R) -> Result<LineNumberTableEntry, ClassFileParseError> {
 		Ok(LineNumberTableEntry {
-			start_pc: parse_u2(reader)?,
+			start_pc: parse_u2_as_usize(reader)?,
 			line_number: parse_u2(reader)?,
 		})
 	}
@@ -425,21 +444,30 @@ impl LocalVariableTableAttribute {
 			)?,
 		})
 	}
+
+	fn map_pc(mut self, pc_map: &PcMap) -> Result<LocalVariableTableAttribute, ClassFileParseError> {
+		self.local_variable_table.iter_mut().for_each(|e| {
+			e.start_pc = pc_map.map(e.start_pc).unwrap(); // TODO: panic!
+			e.end_pc = pc_map.map(e.end_pc).unwrap();
+		});
+		Ok(self)
+	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalVariableTableEntry { // 4.7.13, local_variable_table
-	start_pc: u16,
-	length: u16,
+	start_pc: usize,
+	end_pc: usize,
 	name: Utf8Info,
 	descriptor: Utf8Info,
 	lv_index: u16,
 }
 impl LocalVariableTableEntry {
 	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<LocalVariableTableEntry, ClassFileParseError> {
+		let start_pc = parse_u2_as_usize(reader)?;
+		let end_pc = start_pc + parse_u2_as_usize(reader)?;
 		Ok(LocalVariableTableEntry {
-			start_pc: parse_u2(reader)?,
-			length: parse_u2(reader)?,
+			start_pc, end_pc,
 			name: constant_pool.parse_index(reader)?,
 			descriptor: constant_pool.parse_index(reader)?,
 			lv_index: parse_u2(reader)?,
@@ -461,21 +489,30 @@ impl LocalVariableTypeTableAttribute {
 			)?,
 		})
 	}
+
+	fn map_pc(mut self, pc_map: &PcMap) -> Result<LocalVariableTypeTableAttribute, ClassFileParseError> {
+		self.local_variable_type_table.iter_mut().for_each(|e| {
+			e.start_pc = pc_map.map(e.start_pc).unwrap(); // TODO: panic!
+			e.end_pc = pc_map.map(e.end_pc).unwrap();
+		});
+		Ok(self)
+	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalVariableTypeTableEntry { // 4.7.14, local_variable_type_table
-	start_pc: u16,
-	length: u16,
+	start_pc: usize,
+	end_pc: usize,
 	name: Utf8Info,
 	signature: Utf8Info,
 	lv_index: u16,
 }
 impl LocalVariableTypeTableEntry {
 	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<LocalVariableTypeTableEntry, ClassFileParseError> {
+		let start_pc = parse_u2_as_usize(reader)?;
+		let end_pc = start_pc + parse_u2_as_usize(reader)?;
 		Ok(LocalVariableTypeTableEntry {
-			start_pc: parse_u2(reader)?,
-			length: parse_u2(reader)?,
+			start_pc, end_pc,
 			name: constant_pool.parse_index(reader)?,
 			signature: constant_pool.parse_index(reader)?,
 			lv_index: parse_u2(reader)?,

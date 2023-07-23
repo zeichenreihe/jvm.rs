@@ -420,7 +420,7 @@ impl CpInfoInvokeDynamic {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InvokeDynamicInfo {
 	bootstrap_method_attr_index: u16,
 	name_and_type: NameAndTypeInfo,

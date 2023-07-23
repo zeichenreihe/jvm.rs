@@ -113,7 +113,7 @@ impl VmStackFrame {
 
 	fn next_isn(&mut self) -> Result<Opcode, OutOfBoundsError> {
 		let opcode = self.code.code
-			.get(self.program_counter as usize)
+			.get(self.program_counter)
 			.ok_or(OutOfBoundsError)?
 			.clone();
 		self.program_counter += 1;
