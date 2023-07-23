@@ -73,7 +73,7 @@ pub enum Opcode { // 6.5
 	/// # Notes
 	/// The [Opcode::ALoad] instruction cannot be used to load a value of type `returnAddress` from a local variable onto the operand stack. This asymmetry
 	/// with the [Opcode::AStore] instruction is intentional.
-	ALoad { index: u8 },
+	ALoad { lv_index: u8 },
 	/// Load `reference` from local variable \<n\>.
 	///
 	/// # Operand Stack
@@ -126,7 +126,7 @@ pub enum Opcode { // 6.5
 	///
 	/// # Run-time Exceptions
 	/// - If `count` is less than zero, throw a `java.lang.NegativeArraySizeException`.
-	ANewArray { indexbyte1: u8, indexbyte2: u8 },
+	ANewArray { cp_index: u16 },
 	/// Return `reference` from method.
 	///
 	/// # Operand Stack
@@ -186,7 +186,7 @@ pub enum Opcode { // 6.5
 	///
 	/// The [Opcode::ALoad] instruction cannot be used to load a value of type `returnAddress` from a local variable onto the operand stack. This asymmetry with
 	/// the [Opcode::AStore] instruction is intentional.
-	AStore { index: u8 },
+	AStore { lv_index: u8 },
 	AStore0,
 	/// See [Opcode::AStore0].
 	AStore1,
@@ -335,7 +335,7 @@ pub enum Opcode { // 6.5
 	/// - If `arrayref` is `null`, throw a `java.lang.NullPointerException`.
 	/// - If `index` is not within the bounds of the array referenced by `arrayref`, throw an `java.lang.ArrayIndexOutOfBoundsException`.
 	CAStore,
-	CheckCast,
+	CheckCast { cp_index: u16 },
 	D2f,
 	D2i,
 	D2l,
@@ -347,7 +347,7 @@ pub enum Opcode { // 6.5
 	DConst0,
 	DConst1,
 	DDiv,
-	DLoad { index: u8 },
+	DLoad { lv_index: u8 },
 	DLoad0,
 	/// See [Opcode::DLoad0].
 	DLoad1,
@@ -359,7 +359,7 @@ pub enum Opcode { // 6.5
 	DNeg,
 	DRem,
 	DReturn,
-	DStore { index: u8 },
+	DStore { lv_index: u8 },
 	DStore0,
 	/// See [Opcode::DStore0].
 	DStore1,
@@ -386,7 +386,7 @@ pub enum Opcode { // 6.5
 	FConst1,
 	FConst2,
 	FDiv,
-	FLoad { index: u8 },
+	FLoad { lv_index: u8 },
 	FLoad0,
 	/// See [Opcode::FLoad0].
 	FLoad1,
@@ -398,7 +398,7 @@ pub enum Opcode { // 6.5
 	FNeg,
 	FRem,
 	FReturn,
-	FStore { index: u8 },
+	FStore { lv_index: u8 },
 	FStore0,
 	/// See [Opcode::FStore0].
 	FStore1,
@@ -407,8 +407,8 @@ pub enum Opcode { // 6.5
 	/// See [Opcode::FStore0].
 	FStore3,
 	FSub,
-	GetField,
-	GetStatic,
+	GetField { cp_index: u16 },
+	GetStatic { cp_index: u16 },
 	/// Branch always.
 	///
 	/// # Format
@@ -461,12 +461,24 @@ pub enum Opcode { // 6.5
 	IAStore,
 	IConstM1, IConst0, IConst1, IConst2, IConst3, IConst4, IConst5,
 	IDiv,
-	IfACmpEq, IfACmpNe,
-	IfICmpEq, IfICmpGe, IfICmpGt, IfICmpLe, IfICmpLt, IfICmpNe,
-	IfEq, IfGe, IfGt, IfLe, IfLt, IfNe,
-	IfNonNull, IfNull,
-	IInc,
-	ILoad { index: u8 },
+	IfACmpEq { branch_target: usize },
+	IfACmpNe { branch_target: usize },
+	IfICmpEq { branch_target: usize },
+	IfICmpGe { branch_target: usize },
+	IfICmpGt { branch_target: usize },
+	IfICmpLe { branch_target: usize },
+	IfICmpLt { branch_target: usize },
+	IfICmpNe { branch_target: usize },
+	IfEq { branch_target: usize },
+	IfGe { branch_target: usize },
+	IfGt { branch_target: usize },
+	IfLe { branch_target: usize },
+	IfLt { branch_target: usize },
+	IfNe { branch_target: usize },
+	IfNonNull { branch_target: usize },
+	IfNull { branch_target: usize },
+	IInc { lv_index: u8, const_: u8 },
+	ILoad { lv_index: u8 },
 	ILoad0,
 	/// See [Opcode::ILoad0].
 	ILoad1,
@@ -477,18 +489,18 @@ pub enum Opcode { // 6.5
 	ImpDep1, ImpDep2,
 	IMul,
 	INeg,
-	InstanceOf,
-	InvokeDynamic,
-	InvokeInterface,
-	InvokeSpecial,
-	InvokeStatic,
-	InvokeVirtual,
+	InstanceOf { cp_index: u16 },
+	InvokeDynamic { cp_index: u16, zero1: u8, zero2: u8 },
+	InvokeInterface { cp_index: u16, count: u8, zero: u8 },
+	InvokeSpecial { cp_index: u16 },
+	InvokeStatic { cp_index: u16 },
+	InvokeVirtual { cp_index: u16 },
 	IOr,
 	IRem,
 	IReturn,
 	IShl,
 	IShr,
-	IStore { index: u8 },
+	IStore { lv_index: u8 },
 	IStore0,
 	/// See [Opcode::IStore0].
 	IStore1,
@@ -499,8 +511,8 @@ pub enum Opcode { // 6.5
 	ISub,
 	IUShr,
 	IXor,
-	Jsr,
-	JsrW,
+	Jsr { branch_target: usize },
+	JsrW { branch_target: usize },
 	L2d,
 	L2f,
 	L2i,
@@ -510,11 +522,11 @@ pub enum Opcode { // 6.5
 	LAStore,
 	LCmp,
 	LConst0, LConst1,
-	Ldc,
-	LdcW,
-	Ldc2W,
+	Ldc { cp_index: u16 },
+	LdcW { cp_index: u16 },
+	Ldc2W { cp_index: u16 },
 	LDiv,
-	LLoad { index: u8 },
+	LLoad { lv_index: u8 },
 	LLoad0,
 	/// See [Opcode::LLoad1].
 	LLoad1,
@@ -524,13 +536,71 @@ pub enum Opcode { // 6.5
 	LLoad3,
 	LMul,
 	LNeg,
-	LookupSwitch,
+	/// Access jump table by key match and jump.
+	///
+	/// # Format
+	/// ```
+	/// LookupSwitch
+	/// <0-3 byte pad>
+	/// defaultbyte1
+	/// defaultbyte2
+	/// defaultbyte3
+	/// defaultbyte4
+	/// npairs1
+	/// npairs2
+	/// npairs3
+	/// npairs4
+	/// (
+	///   match1
+	///   match2
+	///   match3
+	///   match4
+	///   offset1
+	///   offset2
+	///   offset3
+	///   offset4
+	/// ) [npairs]
+	/// ```
+	///
+	/// # Operand Stack
+	/// ```
+	/// ..., key: int ->
+	/// ...
+	/// ```
+	///
+	/// # Description
+	/// A [Opcode::LookupSwitch] is a variable-length instruction. Immediately after the [Opcode::LookupSwitch] opcode, between zero and three bytes must act
+	/// as padding, such that `defaultbyte1` begins at an address that is a multiple of four bytes from the start of the current method (the opcode of its first
+	/// instruction). Immediately after the padding follow a series of signed 32-bit values: `default`, `npairs`, and then `npairs` pairs of signed 32-bit
+	/// values. The `npairs` must be greater than or equal to `0`. Each of the `npairs` pairs consists of an `int` match and a signed 32-bit offset. Each of
+	/// these signed 32-bit values is constructed from four unsigned bytes as `(byte1 << 24) | (byte2 << 16) | (byte3 << 8) | byte4`.
+	///
+	/// The table match-offset pairs of the [Opcode::LookupSwitch] instruction must be sorted in increasing numerical order by match.
+	///
+	/// The `key` must be of type `int` and is popped from the operand stack. The `key` is compared against the match values. If it is equal to one of them,
+	/// then a target address is calculated by adding the corresponding offset to the address of the opcode of this [Opcode::LookupSwitch] instruction. If the
+	/// `key` does not match any of the match values, the target address is calculated by adding `default` to the address of the opcode of this
+	/// [Opcode::LookupSwitch] instruction. Execution then continues at the target address.
+	///
+	/// The target address that can be calculated from the offset of each match-offset pair, as well as the one calculated from default, must be the address of
+	/// an opcode of an instruction within the method that contains this [Opcode::LookupSwitch] instruction.
+	///
+	/// # Notes
+	/// The alignment required of the 4-byte operands of the [Opcode::LookupSwitch] instruction guarantees 4-byte alignment of those operands if and only if
+	/// the method that contains the [Opcode::LookupSwitch] is positioned on a 4-byte boundary.
+	///
+	/// The match-offset pairs are sorted to support lookup routines that are quicker than linear search.
+	LookupSwitch {
+		default_target: usize,
+		npairs: i32,
+		targets: Vec<(i32, usize)>, // [npairs]
+	},
 	LOr,
 	LRem,
 	LReturn,
 	LShl,
 	LShr,
-	LStore { index: u8 },
+	LStore { lv_index: u8 },
 	LStore0,
 	/// See [Opcode::LStore0].
 	LStore1,
@@ -565,9 +635,9 @@ pub enum Opcode { // 6.5
 	/// created and must be non-negative. The `count1` is the desired length in the first dimension, `count2` in the second, etc.
 	///
 	/// ...; todo: fill in
-	MultiANewArray,
-	New,
-	NewArray,
+	MultiANewArray { cp_index: u16, dimensions: u8 },
+	New { cp_index: u16 },
+	NewArray { atype: u8 },
 	/// Do nothing.
 	///
 	/// # Operand Stack
@@ -578,9 +648,9 @@ pub enum Opcode { // 6.5
 	Nop,
 	Pop,
 	Pop2,
-	PutField,
-	PutStatic,
-	Ret,
+	PutField { cp_index: u16 },
+	PutStatic { cp_index: u16 },
+	Ret { lv_index: u8 },
 	Return,
 	SALoad,
 	SAStore,
@@ -602,7 +672,7 @@ pub enum Opcode { // 6.5
 	/// # Description
 	/// The immediate unsigned `byte1` and `byte2` values are assembled into an intermediate `short` where the value of the `short` is `(byte1 << 8) | byte2`.
 	/// The intermediate value is then sign-extended to an `int` value. That value is pushed onto the operand stack.
-	SIPush,
+	SIPush { byte1: u8, byte2: u8 },
 	/// Swap the top two operand stack values.
 	///
 	/// # Operand Stack
@@ -640,7 +710,7 @@ pub enum Opcode { // 6.5
 	///   byte2
 	///   byte3
 	///   byte4
-	/// )*
+	/// ) [high - low + 1]
 	/// ```
 	///
 	/// # Operand Stack

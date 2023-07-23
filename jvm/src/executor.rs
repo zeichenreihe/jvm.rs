@@ -62,7 +62,7 @@ struct VmStackFrame {
 	operand_stack: Vec<StackFrameLvType>,
 	stack_pointer: usize,
 
-	program_counter: i32,
+	program_counter: usize,
 	code_: Code,
 	#[deprecated]
 	code: Vec<u8>,
@@ -122,23 +122,6 @@ impl VmStackFrame {
 		Ok(opcode)
 	}
 
-	#[deprecated]
-	fn read_isn(&mut self) -> Result<u8, OutOfBoundsError> {
-		let value = self.code
-			.get(self.program_counter as usize)
-			.copied()
-			.ok_or(OutOfBoundsError);
-		self.program_counter += 1;
-		value
-	}
-
-	#[deprecated]
-	fn read_constant_pool_two_indexes(&mut self) -> Result<usize, RuntimeError> {
-		let index_byte1 = self.read_isn()? as usize;
-		let index_byte2 = self.read_isn()? as usize;
-		Ok(index_byte1 << 8 | index_byte2)
-	}
-
 	fn get_class_instance(&self) -> ClassInstance {
 		ClassInstance {
 			data: vec![3, 0, 0, 0],
@@ -188,20 +171,17 @@ impl VmStackFrame {
 				}
 
 
-				Opcode::IfICmpGe => {
+				Opcode::IfICmpGe { branch_target } => {
 					let value2 = self.pop_stack()?.try_as_int()?;
 					let value1 = self.pop_stack()?.try_as_int()?;
 					if value1 >= value2 {
-						let branchbyte1 = self.read_isn()? as i16;
-						let branchbyte2 = self.read_isn()? as i16;
-						let offset = branchbyte1 << 8 | branchbyte2;
 						let old_pc = self.program_counter;
-						self.program_counter += offset as i32;
+						self.program_counter = branch_target;
 						println!("jumped from {} to {}", old_pc, self.program_counter);
 					}
 				},
-				Opcode::GetStatic => {
-					let index = self.read_constant_pool_two_indexes()?;
+				Opcode::GetStatic { cp_index } => {
+					let index = cp_index as usize;
 					let field_ref: FieldRefInfo = self.class.class.constant_pool.get(index)?;
 
 					let class = self.loader.get(&field_ref.class)?;
@@ -215,8 +195,8 @@ impl VmStackFrame {
 
 					self.push_stack(to_stack)?;
 				},
-				Opcode::New => {
-					let index = self.read_constant_pool_two_indexes()?;
+				Opcode::New { cp_index } => {
+					let index = cp_index as usize;
 					let name: ClassInfo = self.class.class.constant_pool.get(index)?;
 
 					println!("{name:?}");
@@ -227,8 +207,8 @@ impl VmStackFrame {
 					self.push_stack(value)?;
 					self.push_stack(value)?;
 				},
-				Opcode::InvokeSpecial => {
-					let index = self.read_constant_pool_two_indexes()?;
+				Opcode::InvokeSpecial { cp_index } => {
+					let index = cp_index as usize;
 					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
 					let class = method_ref.class;
@@ -242,14 +222,14 @@ impl VmStackFrame {
 						self.pop_stack()?;
 					}
 				},
-				Opcode::Ldc => {
-					let index = self.read_isn()? as usize;
+				Opcode::Ldc { cp_index } => {
+					let index = cp_index as usize;
 					let item: ConstantPoolElement = self.class.class.constant_pool.get(index)?;
 					println!("{item:?}");
 					self.push_stack(StackFrameLvType::Reference(3444))?;
 				},
-				Opcode::InvokeVirtual => {
-					let index = self.read_constant_pool_two_indexes()?;
+				Opcode::InvokeVirtual { cp_index } => {
+					let index = cp_index as usize;
 					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
 					let class = method_ref.class;
@@ -274,8 +254,8 @@ impl VmStackFrame {
 						self.pop_stack()?;
 					}
 				},
-				Opcode::InvokeStatic => {
-					let index = self.read_constant_pool_two_indexes()?;
+				Opcode::InvokeStatic { cp_index } => {
+					let index = cp_index as usize;
 					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
 
 					let class = method_ref.class;
@@ -300,7 +280,7 @@ impl VmStackFrame {
 
 			println!("{self}");
 
-			if self.program_counter as usize >= self.code.len() {
+			if self.program_counter >= self.code_.code.len() {
 				break;
 			}
 		}
