@@ -6,7 +6,7 @@ pub enum Error {
 
 #[warn(missing_docs)]
 /// An opcode of the JVM.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Opcode { // 6.5
 	/// Load `reference` from array.
 	///
@@ -171,11 +171,21 @@ pub enum Opcode { // 6.5
 	///
 	/// # Operand Stack
 	/// ```
-	/// ..., objectref: reference ->
+	/// ..., objectref ->
 	/// ...
 	/// ```
 	///
-	/// TODO: description
+	/// # Description
+	/// The `index` is an unsigned byte that must be an index into the local variable array of the current frame. The `objectref` on the top of the operand
+	/// stack must be of type `returnAddress` or of type `reference`. It is popped from the operand stack, and the value of the local variable at `index` is set
+	/// to `objectref`.
+	///
+	/// # Notes
+	/// The [Opcode::AStore] instruction is used with an `objectref` of type `returnAddress` when implementing the finally clause of the Java programming
+	/// language (§3.13).
+	///
+	/// The [Opcode::ALoad] instruction cannot be used to load a value of type `returnAddress` from a local variable onto the operand stack. This asymmetry with
+	/// the [Opcode::AStore] instruction is intentional.
 	AStore { index: u8 },
 	AStore0,
 	/// See [Opcode::AStore0].
@@ -193,19 +203,137 @@ pub enum Opcode { // 6.5
 	/// ```
 	///
 	/// # Description
-	/// ... TODO: fill in
+	/// The `objectref` must be of type reference and must refer to an object that is an instance of class `java.lang.Throwable` or of a subclass of
+	/// `java/lang/Throwable`. It is popped from the operand stack. The `objectref` is then thrown by searching the current method for the first exception
+	/// handler that matches the class of `objectref`, as given by the algorithm in §2.10.
+	///
+	/// If an exception handler that matches `objectref` is found, it contains the location of the code intended to handle this exception. The `pc` register is
+	/// reset to that location, the operand stack of the current frame is cleared, `objectref` is pushed back onto the operand stack, and execution continues.
+	///
+	/// If no matching exception handler is found in the current frame, that frame is popped. If the current frame represents an invocation of a synchronized
+	/// method, the monitor entered or reentered on invocation of the method is exited as if by execution of a [Opcode::MonitorExit] instruction. Finally, the
+	/// frame of its invoker is reinstated, if such a frame exists, and the `objectref` is rethrown. If no such frame exists, the current thread exits.
 	///
 	/// # Run-time Exception
 	/// - If `objectref` is `null`, throw a `java.lang.NullPointerException` instead of `objectref.
 	///
+	/// Otherwise, if the Java Virtual Machine implementation does not enforce the rules on structured locking described in §2.11.10, then if the method of the
+	/// current frame is a synchronized method and the current thread is not the owner of the monitor entered or reentered on invocation of the method,
+	/// [Opcode::AThrow] throws an `java.lang.IllegalMonitorStateException` instead of the object previously being thrown. This can happen, for example, if an
+	/// abruptly completing synchronized method contains a [Opcode::MonitorExit] instruction, but no [Opcode::MonitorEnter] instruction, on the object on which
+	/// the method is synchronized.
+	///
+	/// Otherwise, if the Java Virtual Machine implementation enforces the rules on structured locking described in §2.11.10 and if the first of those rules is
+	/// violated during invocation of the current method, then [Opcode::AThrow] throws an `java.lang.IllegalMonitorStateException` instead of the object
+	/// previously being thrown.
+	///
 	/// # Notes
-	/// ... TODO: fill in
+	/// The operand stack diagram for the [Opcode::AThrow] instruction may be misleading: If a handler for this exception is matched in the current method, the
+	/// [Opcode::AThrow] instruction discards all the values on the operand stack, then pushes the thrown object onto the operand stack. However, if no handler
+	/// is matched in the current method and the exception is thrown farther up the method invocation chain, then the operand stack of the method (if any) that
+	/// handles the exception is cleared and `objectref` is pushed onto that empty operand stack. All intervening frames from the method that threw the
+	/// exception up to, but not including, the method that handles the exception are discarded.
 	AThrow,
+	/// Load `byte` or `boolean` from array.
+	///
+	/// # Operand Stack
+	/// ```
+	/// ..., arrayref: reference, index: int ->
+	/// ..., value: int
+	/// ```
+	///
+	/// # Description
+	/// The `arrayref` must be of type `reference` and must refer to an array whose components are of type `byte` or of type `boolean`. The `index` must be of
+	/// type `int`. Both `arrayref` and `index` are popped from the operand stack. The `byte` value in the component of the array at `index` is retrieved,
+	/// sign-extended to an `int` value, and pushed onto the top of the operand stack.
+	///
+	/// # Run-time Exceptions
+	/// - If `arrayref` is `null`, throw a `java.lang.NullPointerException`.
+	/// - If `index` is not within the bounds of the array referenced by `arrayref`, throw an `java.lang.ArrayIndexOutOfBoundsException`.
+	///
+	/// # Notes
+	/// The [Opcode::BALoad] instruction is used to load values from both `byte` and `boolean` arrays. In Oracle's Java Virtual Machine implementation,
+	/// `boolean` arrays - that is, arrays of type `T_BOOLEAN` (§2.2, [Opcode::NewArray]) - are implemented as arrays of 8-bit values. Other implementations
+	/// may implement packed boolean arrays; the [Opcode::BALoad] instruction of such implementations must be used to access those arrays.
 	BALoad,
+	/// Store into `byte` or `boolean` array.
+	///
+	/// # Operand Stack
+	/// ```
+	/// ..., arrayref: reference, index: int, value: int ->
+	/// ...
+	/// ```
+	///
+	/// # Description
+	/// The `arrayref` must be of type `reference` and must refer to an array whose components are of type `byte` or of type `boolean`. The `index` and the
+	/// `value` must both be of type `int`. The `arrayref`, `index`, and `value` are popped from the operand stack. The `int` value is truncated to a `byte`
+	/// and stored as the component of the array indexed by `index`.
+	///
+	/// # Run-time Exceptions
+	/// - If `arrayref` is `null`, throw a `java.lang.NullPointerException`.
+	/// - If `index` is not within the bounds of the array referenced by `arrayref`, throw an `java.lang.ArrayIndexOutOfBoundsException`.
+	///
+	/// # Notes
+	/// The [Opcode::BAStore] instruction is used to store values into both `byte` and `boolean` arrays. In Oracle's Java Virtual Machine implementation,
+	/// `boolean` arrays - that is, arrays of type `T_BOOLEAN` (§2.2, [Opcode::NewArray]) - are implemented as arrays of 8-bit values. Other implementations
+	/// may implement packed boolean arrays; in such implementations the [Opcode::BAStore] instruction must be able to store `boolean` values into packed
+	/// boolean arrays as well as `byte` values into `byte` arrays.
 	BAStore,
-	BIPush,
+	/// Push `byte`
+	///
+	/// # Format
+	/// ```
+	/// BIPush
+	/// byte
+	/// ```
+	///
+	/// # Operand Stack
+	/// ```
+	/// ... ->
+	/// ..., value: int
+	/// ```
+	///
+	/// # Description
+	/// The immediate `byte` is sign-extended to an `int` value. That value is pushed onto the operand stack.
+	BIPush {
+		byte: u8,
+	},
+	/// Implementation instruction.
+	/// This opcode is intended to be used by debuggers to implement breakpoints.
 	Breakpoint,
+	/// Load `char` from array.
+	///
+	/// # Operand Stack
+	/// ```
+	/// ..., arrayref: reference, index: int ->
+	/// ..., value: int
+	/// ```
+	///
+	/// # Description
+	/// The `arrayref` must be of type `reference` and must refer to an array whose components are of type `char`. The `index` must be of type `int`. Both
+	/// `arrayref` and `index` are popped from the operand stack. The component of the array at `index` is retrieved and zero-extended to an `int` value. That
+	/// value is pushed onto the operand stack.
+	///
+	/// # Run-time Exceptions
+	/// - If `arrayref` is `null`, throw a `java.lang.NullPointerException`.
+	/// - If `index` is not within the bounds of the array referenced by `arrayref`, throw an `java.lang.ArrayIndexOutOfBoundsException`.
 	CALoad,
+	/// Store into `char` array.
+	///
+	/// # Operand Stack
+	/// ```
+	/// ..., arrayref: reference, index: int, value: int ->
+	/// ...
+	/// ```
+	///
+	/// # Description
+	/// The `arrayref` must be of type `reference` and must refer to an array whose components are of type `char`. The `index` and the `value` must both be of
+	/// type `int`. The `arrayref`, `index`, and `value` are popped from the operand stack. The `int` value is truncated to a `char` and stored as the component
+	/// of the array indexed by `index`.
+	///
+	/// # Run-time Exceptions
+	/// - If `arrayref` is `null`, throw a `java.lang.NullPointerException`.
+	/// - If `index` is not within the bounds of the array referenced by `arrayref`, throw an `java.lang.ArrayIndexOutOfBoundsException`.
 	CAStore,
 	CheckCast,
 	D2f,
