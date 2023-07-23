@@ -1,8 +1,4 @@
-
-#[derive(Debug)]
-pub enum Error {
-	UnknownOpcode ( u8 ),
-}
+use crate::errors::ClassFileParseError;
 
 #[warn(missing_docs)]
 /// An opcode of the JVM.
@@ -253,8 +249,8 @@ pub enum Opcode { // 6.5
 	///
 	/// # Notes
 	/// The [Opcode::BALoad] instruction is used to load values from both `byte` and `boolean` arrays. In Oracle's Java Virtual Machine implementation,
-	/// `boolean` arrays - that is, arrays of type `T_BOOLEAN` (§2.2, [Opcode::NewArray]) - are implemented as arrays of 8-bit values. Other implementations
-	/// may implement packed boolean arrays; the [Opcode::BALoad] instruction of such implementations must be used to access those arrays.
+	/// `boolean` arrays - that is, arrays of type `T_BOOLEAN` (§2.2, [Opcode::NewArray], [ArrayType::Boolean]) - are implemented as arrays of 8-bit values.
+	/// Other implementations may implement packed boolean arrays; the [Opcode::BALoad] instruction of such implementations must be used to access those arrays.
 	BALoad,
 	/// Store into `byte` or `boolean` array.
 	///
@@ -275,9 +271,9 @@ pub enum Opcode { // 6.5
 	///
 	/// # Notes
 	/// The [Opcode::BAStore] instruction is used to store values into both `byte` and `boolean` arrays. In Oracle's Java Virtual Machine implementation,
-	/// `boolean` arrays - that is, arrays of type `T_BOOLEAN` (§2.2, [Opcode::NewArray]) - are implemented as arrays of 8-bit values. Other implementations
-	/// may implement packed boolean arrays; in such implementations the [Opcode::BAStore] instruction must be able to store `boolean` values into packed
-	/// boolean arrays as well as `byte` values into `byte` arrays.
+	/// `boolean` arrays - that is, arrays of type `T_BOOLEAN` (§2.2, [Opcode::NewArray], [ArrayType::Boolean]) - are implemented as arrays of 8-bit values.
+	/// Other implementations may implement packed boolean arrays; in such implementations the [Opcode::BAStore] instruction must be able to store `boolean`
+	/// values into packed boolean arrays as well as `byte` values into `byte` arrays.
 	BAStore,
 	/// Push `byte`
 	///
@@ -637,7 +633,7 @@ pub enum Opcode { // 6.5
 	/// ...; todo: fill in
 	MultiANewArray { cp_index: u16, dimensions: u8 },
 	New { cp_index: u16 },
-	NewArray { atype: u8 },
+	NewArray { a_type: ArrayType },
 	/// Do nothing.
 	///
 	/// # Operand Stack
@@ -752,4 +748,25 @@ pub enum Opcode { // 6.5
 	WideLStore { lv_index: u16 },
 	WideRet    { lv_index: u16 },
 	WideIInc   { lv_index: u16, const_: i16 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArrayType {
+	Boolean, Char, Float, Double, Byte, Short, Int, Long,
+}
+
+impl ArrayType {
+	pub fn parse(a_type: u8) -> Result<ArrayType, ClassFileParseError> {
+		match a_type {
+			4 => Ok(ArrayType::Boolean),
+			5 => Ok(ArrayType::Char),
+			6 => Ok(ArrayType::Float),
+			7 => Ok(ArrayType::Double),
+			8 => Ok(ArrayType::Byte),
+			9 => Ok(ArrayType::Short),
+			10 => Ok(ArrayType::Int),
+			11 => Ok(ArrayType::Long),
+			a_type => Err(ClassFileParseError::UnknownArrayType(a_type)),
+		}
+	}
 }

@@ -23,7 +23,7 @@ macro_rules! gen_parse_u_int {
 			}
 		}
 		#[inline]
-		fn $usize_parse_name<R: Read, E: From<std::io::Error>>(reader: &mut R) -> Result<usize, E> {
+		fn $usize_parse_name<R: Read>(reader: &mut R) -> Result<usize, std::io::Error> {
 			Ok($name(reader)? as usize)
 		}
 	}
@@ -34,9 +34,9 @@ gen_parse_u_int!(parse_u4, parse_u4_as_usize, 4, u32);
 
 /// First calls the `size` parameter to get the length of the data, then calls `element` so often to read the data, returning the data then. The argument
 /// `reader` is given to both closures.
-fn parse_vec<T, R: Read, E, SIZE, ELEMENT>(reader: &mut R, size: SIZE, element: ELEMENT) -> Result<Vec<T>, E>
+fn parse_vec<T, R: Read, E: From<E1>, SIZE, ELEMENT, E1>(reader: &mut R, size: SIZE, element: ELEMENT) -> Result<Vec<T>, E>
 	where
-		SIZE: FnOnce(&mut R) -> Result<usize, E>,
+		SIZE: FnOnce(&mut R) -> Result<usize, E1>,
 		ELEMENT: Fn(&mut R) -> Result<T, E>
 {
 	let count = size(reader)?;

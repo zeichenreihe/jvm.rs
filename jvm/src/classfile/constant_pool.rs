@@ -511,7 +511,7 @@ struct CpInfoVec(Vec<CpInfo>);
 impl CpInfoVec {
 	fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
 		let vec: Vec<CpInfo> = parse_vec(reader,
-			 |r| Ok(parse_u2(r)? as usize - 1),
+			 |r| Ok::<usize, ClassFileParseError>(parse_u2_as_usize(r)? - 1),
 			 |r| CpInfo::parse(r)
 		)?;
 		Ok(Self(vec))
@@ -607,6 +607,7 @@ impl ConstantPool {
 	/// Reads an [u16] and interprets it as an index into the constant pool. Doesn't try to convert the tag there.
 	pub fn parse_index_get<R: Read>(&self, reader: &mut R) -> Result<&ConstantPoolElement, ClassFileParseError> {
 		let index = parse_u2(reader)? as usize;
+		assert_ne!(index, 0);
 		match self.0.get(index) {
 			Some(item) => Ok(item),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
@@ -617,6 +618,7 @@ impl ConstantPool {
 	pub fn get<T: TryFrom<ConstantPoolElement>>(&self, index: usize) -> Result<T, ClassFileParseError>
 		where ClassFileParseError: From<<T as TryFrom<ConstantPoolElement>>::Error>
 	{
+		assert_ne!(index, 0);
 		match self.0.get(index) {
 			Some(item) => Ok(T::try_from(item.clone())?),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),

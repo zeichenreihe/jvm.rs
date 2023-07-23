@@ -47,6 +47,8 @@ pub enum ClassFileParseError {
 	UnknownStackMapFrameType(u8),
 	UnknownAnnotationElementValueTag(u8),
 	UnknownMethodHandleInfoKind(u8),
+	UnknownOpcode(u8),
+	UnknownArrayType(u8),
 
 	WrongConstantPoolTag,
 	InvalidAttributeLength { expected: u32, actual: u32 },
@@ -56,9 +58,9 @@ pub enum ClassFileParseError {
 	NoSuchConstantPoolEntry(usize),
 
 	InvalidMagic(u32),
-	InvalidValue(u32),
 
 	IoError(std::io::Error),
+	OutOfBounds(OutOfBoundsError),
 }
 
 impl Display for ClassFileParseError {
@@ -99,6 +101,11 @@ impl From<Infallible> for ClassFileParseError {
 	}
 }
 
+impl From<OutOfBoundsError> for ClassFileParseError {
+	fn from(value: OutOfBoundsError) -> Self {
+		Self::OutOfBounds(value)
+	}
+}
 
 #[derive(Debug)]
 pub enum ClassLoadError {
@@ -154,7 +161,7 @@ impl From<ClassFileParseError> for RuntimeError {
 }
 
 impl From<OutOfBoundsError> for RuntimeError {
-	fn from(_: OutOfBoundsError) -> Self {
-		Self::OutOfBounds(OutOfBoundsError)
+	fn from(value: OutOfBoundsError) -> Self {
+		Self::OutOfBounds(value)
 	}
 }

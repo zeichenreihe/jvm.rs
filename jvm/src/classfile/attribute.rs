@@ -247,7 +247,7 @@ impl StackMapFrame {
 			frame_type @ 252..=254 => Ok(Self::Append {
 				offset_delta: parse_u2(reader)?,
 				locals: parse_vec(reader,
-					|_| Ok((frame_type - 251) as usize),
+					|_| Ok::<usize, ClassFileParseError>((frame_type - 251) as usize),
 					|r| VerificationTypeInfo::parse(r, constant_pool)
 				)?,
 			}),
