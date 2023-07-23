@@ -122,7 +122,10 @@ impl CodeAttribute {
 		Ok(CodeAttribute {
 			max_stack,
 			max_locals,
-			code_: Code::parse(code.clone())?,
+			code_: match Code::parse(code.clone()) {
+				Ok(e) => e,
+				_ => panic!(),
+			},
 			code,
 			exception_table,
 			attributes,

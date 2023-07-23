@@ -4,6 +4,7 @@ use std::rc::Rc;
 use crate::class_instance::{Class, ClassData, ClassInstance};
 use crate::class_loader::ClassLoader;
 use crate::classfile::{ClassInfo, ConstantPoolElement, FieldRefInfo, MethodRefInfo};
+use crate::code::Code;
 use crate::errors::{OutOfBoundsError, RuntimeError};
 use crate::opcodes::Opcode;
 
@@ -62,6 +63,8 @@ struct VmStackFrame {
 	stack_pointer: usize,
 
 	program_counter: i32,
+	code_: Code,
+	#[deprecated]
 	code: Vec<u8>,
 	class: Rc<Class>,
 	loader: ClassLoader,
@@ -110,6 +113,16 @@ impl VmStackFrame {
 			.ok_or(OutOfBoundsError)
 	}
 
+	fn next_isn(&mut self) -> Result<Opcode, OutOfBoundsError> {
+		let opcode = self.code_.code
+			.get(self.program_counter as usize)
+			.ok_or(OutOfBoundsError)?
+			.clone();
+		self.program_counter += 1;
+		Ok(opcode)
+	}
+
+	#[deprecated]
 	fn read_isn(&mut self) -> Result<u8, OutOfBoundsError> {
 		let value = self.code
 			.get(self.program_counter as usize)
@@ -119,6 +132,7 @@ impl VmStackFrame {
 		value
 	}
 
+	#[deprecated]
 	fn read_constant_pool_two_indexes(&mut self) -> Result<usize, RuntimeError> {
 		let index_byte1 = self.read_isn()? as usize;
 		let index_byte2 = self.read_isn()? as usize;
@@ -135,7 +149,7 @@ impl VmStackFrame {
 	fn run_isn(&mut self) -> Result<(), RuntimeError> {
 		let mut n = 0;
 		loop {
-			let opcode = Opcode::try_from(self.read_isn()?).expect("for now good enough");
+			let opcode = self.next_isn()?;
 
 			println!("opcode: {opcode:?}");
 
@@ -404,6 +418,7 @@ mod testing {
 		let mut frame = VmStackFrame {
 			program_counter: 0,
 			stack_pointer: 0,
+			code_: code.code_.clone(),
 			code: code.code.to_owned(),
 			local_variables: {
 				let mut vec = Vec::with_capacity(code.max_locals as usize);
@@ -467,6 +482,7 @@ mod testing {
 		let mut frame = VmStackFrame {
 			program_counter: 0,
 			stack_pointer: 0,
+			code_: code.code_.clone(),
 			code: code.code.to_owned(),
 			local_variables: {
 				let mut vec = Vec::with_capacity(code.max_locals as usize);
