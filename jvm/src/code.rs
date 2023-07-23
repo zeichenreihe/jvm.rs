@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::mem::size_of;
-use crate::errors::{ClassFileParseError, OutOfBoundsError};
+use crate::errors::OutOfBoundsError;
 use crate::opcodes::Opcode;
 
 struct CodeReader {
@@ -83,7 +83,7 @@ impl CodeReader {
 
 	fn get_i32_branchoffset(&mut self) -> Result<usize, OutOfBoundsError> {
 		let offset = self.get_i32()?;
-		let target = (offset as i32) + (self.this_instruction_pos as i32);
+		let target = offset + (self.this_instruction_pos as i32);
 
 		Ok(target.try_into().unwrap())
 	}
@@ -461,11 +461,52 @@ impl Code {
 						default_target, low, high, targets,
 					}
 				},
-				0xc4 => {
+				0xc4 => { // Wide
 					let opcode = bytes.get_u8()?;
 
-					todo!()
-				}, // Opcode::Wide,
+					match opcode {
+						0x19 => Opcode::WideALoad {
+							lv_index: bytes.get_u16()?,
+						},
+						0x3a => Opcode::WideAStore {
+							lv_index: bytes.get_u16()?,
+						},
+						0x18 => Opcode::WideDLoad {
+							lv_index: bytes.get_u16()?,
+						},
+						0x39 => Opcode::WideDStore {
+							lv_index: bytes.get_u16()?,
+						},
+						0x17 => Opcode::WideFLoad {
+							lv_index: bytes.get_u16()?,
+						},
+						0x38 => Opcode::WideFStore {
+							lv_index: bytes.get_u16()?,
+						},
+						0x15 => Opcode::WideILoad {
+							lv_index: bytes.get_u16()?,
+						},
+						0x36 => Opcode::WideIStore {
+							lv_index: bytes.get_u16()?,
+						},
+						0x16 => Opcode::WideLLoad {
+							lv_index: bytes.get_u16()?,
+						},
+						0x37 => Opcode::WideLStore {
+							lv_index: bytes.get_u16()?,
+						},
+						0xa0 => Opcode::WideRet {
+							lv_index: bytes.get_u16()?,
+						},
+						0x84 => Opcode::WideIInc {
+							lv_index: bytes.get_u16()?,
+							const_: bytes.get_i16()?,
+						},
+						_ => todo!(),
+					}
+
+					todo!("opcode: {}", opcode)
+				},
 				x => todo!("not implemented: {}", x),
 			};
 

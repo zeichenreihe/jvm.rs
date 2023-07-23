@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::mem;
 use std::rc::Rc;
-use crate::class_instance::{Class, ClassData, ClassInstance};
+use crate::class_instance::Class;
 use crate::class_loader::ClassLoader;
 use crate::classfile::{ClassInfo, ConstantPoolElement, FieldRefInfo, MethodRefInfo};
 use crate::code::Code;
@@ -63,9 +63,7 @@ struct VmStackFrame {
 	stack_pointer: usize,
 
 	program_counter: usize,
-	code_: Code,
-	#[deprecated]
-	code: Vec<u8>,
+	code: Code,
 	class: Rc<Class>,
 	loader: ClassLoader,
 }
@@ -114,7 +112,7 @@ impl VmStackFrame {
 	}
 
 	fn next_isn(&mut self) -> Result<Opcode, OutOfBoundsError> {
-		let opcode = self.code_.code
+		let opcode = self.code.code
 			.get(self.program_counter as usize)
 			.ok_or(OutOfBoundsError)?
 			.clone();
@@ -122,15 +120,7 @@ impl VmStackFrame {
 		Ok(opcode)
 	}
 
-	fn get_class_instance(&self) -> ClassInstance {
-		ClassInstance {
-			data: vec![3, 0, 0, 0],
-			class: self.class.clone(),
-		}
-	}
-
 	fn run_isn(&mut self) -> Result<(), RuntimeError> {
-		let mut n = 0;
 		loop {
 			let opcode = self.next_isn()?;
 
@@ -280,7 +270,7 @@ impl VmStackFrame {
 
 			println!("{self}");
 
-			if self.program_counter >= self.code_.code.len() {
+			if self.program_counter >= self.code.code.len() {
 				break;
 			}
 		}
@@ -291,19 +281,15 @@ impl VmStackFrame {
 
 #[cfg(test)]
 mod testing {
-	use std::collections::HashMap;
 	use std::fs::File;
 	use std::io::{BufReader, Read};
-	use std::rc::Rc;
 	use std::sync::atomic::AtomicUsize;
 	use std::sync::atomic::Ordering::Relaxed;
 	use inkwell::module::Linkage;
 	use zip::ZipArchive;
-	use crate::class_instance::{Class, Field};
 	use crate::class_loader::{ClassesSource, ClassLoader};
-	use crate::classfile::{ClassFile, ClassInfo};
-	use crate::executor::{StackFrameLvType, Vm};
-	use crate::types::descriptor::{BaseOrObjectType, FieldDescriptor};
+	use crate::classfile::ClassInfo;
+	use crate::executor::{StackFrameLvType};
 	use super::VmStackFrame;
 
 /*	#[test]
@@ -393,13 +379,12 @@ mod testing {
 		let code = main.code.as_ref().unwrap();
 		let stack_map_frame = &code.stack_map_table;
 
-		//dbg!(stack_map_frame);
+		dbg!(stack_map_frame);
 
 		let mut frame = VmStackFrame {
 			program_counter: 0,
 			stack_pointer: 0,
-			code_: code.code_.clone(),
-			code: code.code.to_owned(),
+			code: code.code.clone(),
 			local_variables: {
 				let mut vec = Vec::with_capacity(code.max_locals as usize);
 				for _ in 0..(code.max_locals as usize) { vec.push(StackFrameLvType::Empty) }
@@ -457,13 +442,12 @@ mod testing {
 		let code = main.code.as_ref().unwrap();
 		let stack_map_frame = &code.stack_map_table;
 
-		//dbg!(stack_map_frame);
+		dbg!(stack_map_frame);
 
 		let mut frame = VmStackFrame {
 			program_counter: 0,
 			stack_pointer: 0,
-			code_: code.code_.clone(),
-			code: code.code.to_owned(),
+			code: code.code.clone(),
 			local_variables: {
 				let mut vec = Vec::with_capacity(code.max_locals as usize);
 				for _ in 0..(code.max_locals as usize) { vec.push(StackFrameLvType::Empty) }

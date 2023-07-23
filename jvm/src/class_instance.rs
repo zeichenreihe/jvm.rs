@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::rc::Rc;
-use std::sync::Arc;
-use crate::classfile::{ClassFile, ConstantValueAttribute, FieldInfo, NameAndTypeInfo, Utf8Info};
+use crate::classfile::{ClassFile, ConstantValueAttribute, FieldInfo, NameAndTypeInfo};
 use crate::errors::OutOfBoundsError;
 use crate::executor::{J_NULL, JInt, JReference, StackFrameLvType};
 use crate::types::descriptor::{BaseOrObjectType, FieldDescriptor};

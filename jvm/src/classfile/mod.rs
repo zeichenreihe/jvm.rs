@@ -339,7 +339,7 @@ mod testing {
 		//println!("{:#?}", class_file);
 
 		for method in class_file.methods {
-		//	println!("method: {:#?}", method.code);
+			println!("method: {:#?}", method.code);
 		}
 	}
 
@@ -352,6 +352,6 @@ mod testing {
 		let mut class_file = rt.by_name("java/lang/Object.class").unwrap();
 		let classfile = ClassFile::parse(&mut class_file).unwrap();
 
-		//println!("{classfile:#?}");
+		println!("{classfile:#?}");
 	}
 }
