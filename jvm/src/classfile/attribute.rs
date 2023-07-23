@@ -1,7 +1,7 @@
 use std::io::Read;
 use itertools::{Either, Itertools};
 use crate::classfile::{ClassInfo, ConstantPool, ConstantPoolElement, DoubleInfo, FloatInfo, IntegerInfo, LongInfo, MethodHandleInfo, MethodTypeInfo, NameAndTypeInfo, parse_u1, parse_u1_as_usize, parse_u2, parse_u2_as_usize, parse_u4, parse_u4_as_usize, parse_vec, StringInfo, Utf8Info};
-use crate::code::Code;
+use crate::code::{Code, PcMap};
 use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
 
 fn check_attribute_length<R: Read>(reader: &mut R, length: u32) -> Result<(), ClassFileParseError> {
@@ -68,10 +68,11 @@ impl CodeAttribute {
 			parse_u4_as_usize,
 			parse_u1
 		)?;
+		let code = Code::parse(code, constant_pool)?;
 
 		let exception_table = parse_vec(reader,
 			parse_u2_as_usize,
-			|r| ExceptionTableEntry::parse(r, constant_pool)
+			|r| ExceptionTableEntry::parse(r, constant_pool, &code.pc_map)
 		)?;
 
 		let attributes = parse_vec(reader,
@@ -120,33 +121,30 @@ impl CodeAttribute {
 		Ok(CodeAttribute {
 			max_stack,
 			max_locals,
-			code: match Code::parse(code.clone()) {
-				Ok(e) => e,
-				_ => panic!(),
-			},
+			code,
 			exception_table,
 			attributes,
-			line_number_table,
-			local_variable_table,
-			local_variable_type_table,
-			stack_map_table,
+			line_number_table, // <- still to change pc numbers
+			local_variable_table, // <- still to change pc numbers
+			local_variable_type_table, // <- still to change pc numbers
+			stack_map_table, // <- still to change pc numbers
 		})
 	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExceptionTableEntry { // 4.7.3, exception_table
-	start_pc: u16,
-	end_pc: u16,
-	handler_pc: u16,
+	start_pc: usize,
+	end_pc: usize,
+	handler_pc: usize,
 	catch_type: Option<ClassInfo>,
 }
 impl ExceptionTableEntry {
-	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<ExceptionTableEntry, ClassFileParseError> {
+	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool, pc_map: &PcMap) -> Result<ExceptionTableEntry, ClassFileParseError> {
 		Ok(ExceptionTableEntry {
-			start_pc: parse_u2(reader)?,
-			end_pc: parse_u2(reader)?,
-			handler_pc: parse_u2(reader)?,
+			start_pc: pc_map.map(parse_u2_as_usize(reader)?)?,
+			end_pc: pc_map.map(parse_u2_as_usize(reader)?)?,
+			handler_pc: pc_map.map(parse_u2_as_usize(reader)?)?,
 			catch_type: constant_pool.parse_index_optional(reader)?,
 		})
 	}

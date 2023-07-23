@@ -121,6 +121,7 @@ impl VmStackFrame {
 	}
 
 	fn run_isn(&mut self) -> Result<(), RuntimeError> {
+		println!("{self}");
 		loop {
 			let opcode = self.next_isn()?;
 
@@ -132,6 +133,9 @@ impl VmStackFrame {
 				Opcode::IConst1 => self.push_stack(StackFrameLvType::Int(1))?,
 				Opcode::IConst2 => self.push_stack(StackFrameLvType::Int(2))?,
 				Opcode::IConst3 => self.push_stack(StackFrameLvType::Int(3))?,
+				Opcode::IConst4 => self.push_stack(StackFrameLvType::Int(4))?,
+				Opcode::IConst5 => self.push_stack(StackFrameLvType::Int(5))?,
+				Opcode::IConstM1 => self.push_stack(StackFrameLvType::Int(-1))?,
 				Opcode::IAdd => {
 					let a = self.pop_stack()?.try_as_int()?;
 					let b = self.pop_stack()?.try_as_int()?;
@@ -154,10 +158,37 @@ impl VmStackFrame {
 					// TODO: verify: reference
 					self.push_stack(a)?;
 				},
+
+				Opcode::ALoad1 => {
+					let a = self.load_lv(1)?;
+					// TODO: verify: reference
+					self.push_stack(a)?;
+				},
+				Opcode::ALoad2 => {
+					let a = self.load_lv(2)?;
+					// TODO: verify: reference
+					self.push_stack(a)?;
+				},
+				Opcode::ALoad3 => {
+					let a = self.load_lv(3)?;
+					// TODO: verify: reference
+					self.push_stack(a)?;
+				},
+
 				Opcode::AStore1 => {
 					let a = self.pop_stack()?;
 					// TODO: verify: reference
 					self.store_lv(1, a)?;
+				},
+				Opcode::AStore2 => {
+					let a = self.pop_stack()?;
+					// TODO: verify: reference
+					self.store_lv(2, a)?;
+				},
+				Opcode::AStore3 => {
+					let a = self.pop_stack()?;
+					// TODO: verify: reference
+					self.store_lv(3, a)?;
 				}
 
 
@@ -192,6 +223,20 @@ impl VmStackFrame {
 					println!("{name:?}");
 					self.push_stack(StackFrameLvType::Reference(234))?;
 				},
+				Opcode::NewArray { a_type } => {
+					let _count = self.pop_stack()?;
+					println!("{a_type:?}");
+					self.push_stack(StackFrameLvType::Reference(2333334))?;
+				},
+				Opcode::BIPush { byte } => {
+					self.push_stack(StackFrameLvType::Int(byte as i32))?;
+				}
+				Opcode::CAStore => {
+					let value = self.pop_stack()?;
+					let index = self.pop_stack()?;
+					let arrayref = self.pop_stack()?;
+					println!("storing: {value:?} at {index:?}");
+				}
 				Opcode::Dup => {
 					let value = self.pop_stack()?;
 					self.push_stack(value)?;
@@ -211,6 +256,10 @@ impl VmStackFrame {
 					if desc == String::from("()V") {
 						self.pop_stack()?;
 					}
+					if desc == "([C)V" {
+						self.pop_stack()?;
+						self.pop_stack()?;
+					}
 				},
 				Opcode::Ldc { cp_index } => {
 					let index = cp_index as usize;
@@ -228,20 +277,36 @@ impl VmStackFrame {
 
 					println!("{class}, {name}, {desc}");
 
+					let class = class.to_string();
+					let name = name.to_string();
 					let desc = desc.to_string();
+
 					if desc == "(Ljava/lang/String;)Ljava/lang/StringBuilder;" {
-						self.pop_stack()?;
-						let _this = self.pop_stack()?;
+						let _string = self.pop_stack();
+					}
+					if desc == "(Ljava/lang/String;)V" {
+						let _string = self.pop_stack()?;
+					}
+					if desc == "(I)Ljava/lang/StringBuilder;" {
+						let _int = self.pop_stack()?;
+					}
+					if desc == "(I)V" {
+						let _int = self.pop_stack()?;
+					}
+
+					let _this = self.pop_stack()?;
+
+					if desc == "(I)Ljava/lang/StringBuilder;" {
 						self.push_stack(StackFrameLvType::Reference(290598025))?;
 					}
-
 					if desc == "()Ljava/lang/String;" {
-						let _this = self.pop_stack()?;
 						self.push_stack(StackFrameLvType::Reference(890225890))?;
 					}
-
-					if desc == "(Ljava/lang/String;)V" {
-						self.pop_stack()?;
+					if desc == "(Ljava/lang/String;)Ljava/lang/StringBuilder;" {
+						self.push_stack(StackFrameLvType::Reference(290598025))?;
+					}
+					if desc == "()I" {
+						self.push_stack(StackFrameLvType::Int(666))?;
 					}
 				},
 				Opcode::InvokeStatic { cp_index } => {
@@ -258,6 +323,10 @@ impl VmStackFrame {
 					if desc == "([Ljava/lang/Object;)Ljava/lang/String;" {
 						let _value = self.pop_stack()?;
 						self.push_stack(StackFrameLvType::Reference(2235890))?;
+					}
+					if desc == "(Ljava/lang/Object;)I" {
+						let _value = self.pop_stack()?;
+						self.push_stack(StackFrameLvType::Int(6666))?;
 					}
 				},
 				Opcode::Return => {
@@ -442,6 +511,7 @@ mod testing {
 		let code = main.code.as_ref().unwrap();
 		let stack_map_frame = &code.stack_map_table;
 
+		dbg!(code);
 		dbg!(stack_map_frame);
 
 		let mut frame = VmStackFrame {

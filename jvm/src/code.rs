@@ -1,14 +1,16 @@
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::mem::size_of;
-use crate::errors::OutOfBoundsError;
-use crate::opcodes::Opcode;
+use crate::classfile::ConstantPool;
+use crate::errors::{ClassFileParseError, OutOfBoundsError};
+use crate::opcodes::{ArrayType, Opcode};
 
 struct CodeReader {
 	bytes: Vec<u8>,
 	pos: usize,
 	instruction_count: usize,
 	this_instruction_pos: usize,
-	pc_map: HashMap<usize, usize>,
+	pc_map: PcMap,
 }
 
 impl CodeReader {
@@ -17,13 +19,13 @@ impl CodeReader {
 	}
 
 	fn next_instruction(&mut self) -> () {
-		self.pc_map.insert(self.pos, self.instruction_count);
+		self.pc_map.0.insert(self.pos, self.instruction_count);
 		self.instruction_count += 1;
 		self.this_instruction_pos = self.pos;
 	}
 
 	fn remap_pc(&self, target: &mut usize) -> () {
-		*target = *self.pc_map.get(&target).expect("no such instruction at bytecode ...");
+		self.pc_map.remap_pc(target);
 	}
 
 	fn move_to_next_4_byte_boundary(&mut self) -> () {
@@ -90,20 +92,44 @@ impl CodeReader {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Maps from the "old" program counter, that is, the one in the original bytecode, to "our" program counter, that is, the index in the code vec.
+pub struct PcMap(HashMap<usize, usize>);
+
+impl PcMap {
+	fn remap_pc(&self, target: &mut usize) -> () {
+		*target = *self.0.get(&target).expect("no such instruction at bytecode ...");
+	}
+
+	pub fn map(&self, target: usize) -> Result<usize, ClassFileParseError> {
+		Ok(*self.0.get(&target).expect("no such instruction at bytecode ..."))
+	}
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct Code {
 	pub code: Vec<Opcode>,
-	/// Maps from the "old" program counter, that is, the one in the original bytecode, to "our" program counter, that is, the index in the code vec.
-	pub pc_map: HashMap<usize, usize>,
+	pub pc_map: PcMap,
+}
+
+impl Debug for Code {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		let mut t = f.debug_struct("Code");
+		t.field("pc_map", &self.pc_map);
+		for (pos, entry) in self.code.iter().enumerate() {
+			t.field(&format!("- {pos:?}"), &entry);
+		}
+		t.finish()
+	}
 }
 
 impl Code {
-	pub fn parse(bytes: Vec<u8>) -> Result<Code, OutOfBoundsError> {
+	pub fn parse(bytes: Vec<u8>, constant_pool: &ConstantPool) -> Result<Code, ClassFileParseError> {
 		let mut bytes = CodeReader {
 			bytes,
 			pos: 0,
 			instruction_count: 0,
 			this_instruction_pos: 0,
-			pc_map: HashMap::new(),
+			pc_map: PcMap(HashMap::new()),
 		};
 
 		let mut code = Vec::new();
@@ -421,7 +447,7 @@ impl Code {
 					cp_index: bytes.get_u16()?,
 				},
 				0xbc => Opcode::NewArray {
-					atype: bytes.get_u8()?,
+					a_type: ArrayType::parse(bytes.get_u8()?)?,
 				},
 				0x00 => Opcode::Nop,
 				0x57 => Opcode::Pop,
@@ -504,8 +530,6 @@ impl Code {
 						},
 						_ => todo!(),
 					}
-
-					todo!("opcode: {}", opcode)
 				},
 				x => todo!("not implemented: {}", x),
 			};
