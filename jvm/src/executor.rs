@@ -201,10 +201,7 @@ impl VmStackFrame {
 						println!("jumped from {} to {}", old_pc, self.program_counter);
 					}
 				},
-				Opcode::GetStatic { cp_index } => {
-					let index = cp_index as usize;
-					let field_ref: FieldRefInfo = self.class.class.constant_pool.get(index)?;
-
+				Opcode::GetStatic { field_ref } => {
 					let class = self.loader.get(&field_ref.class)?;
 
 					let field = class.static_fields.get(&field_ref.name_and_type).unwrap();
@@ -216,11 +213,8 @@ impl VmStackFrame {
 
 					self.push_stack(to_stack)?;
 				},
-				Opcode::New { cp_index } => {
-					let index = cp_index as usize;
-					let name: ClassInfo = self.class.class.constant_pool.get(index)?;
-
-					println!("{name:?}");
+				Opcode::New { class } => {
+					println!("{class:?}");
 					self.push_stack(StackFrameLvType::Reference(234))?;
 				},
 				Opcode::NewArray { a_type } => {
@@ -242,10 +236,7 @@ impl VmStackFrame {
 					self.push_stack(value)?;
 					self.push_stack(value)?;
 				},
-				Opcode::InvokeSpecial { cp_index } => {
-					let index = cp_index as usize;
-					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
-
+				Opcode::InvokeSpecial { method_ref } => {
 					let class = method_ref.class;
 					let name = method_ref.name_and_type.name;
 					let desc = method_ref.name_and_type.descriptor;
@@ -267,10 +258,7 @@ impl VmStackFrame {
 					println!("{item:?}");
 					self.push_stack(StackFrameLvType::Reference(3444))?;
 				},
-				Opcode::InvokeVirtual { cp_index } => {
-					let index = cp_index as usize;
-					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
-
+				Opcode::InvokeVirtual { method_ref } => {
 					let class = method_ref.class;
 					let name = method_ref.name_and_type.name;
 					let desc = method_ref.name_and_type.descriptor;
@@ -309,10 +297,7 @@ impl VmStackFrame {
 						self.push_stack(StackFrameLvType::Int(666))?;
 					}
 				},
-				Opcode::InvokeStatic { cp_index } => {
-					let index = cp_index as usize;
-					let method_ref: MethodRefInfo = self.class.class.constant_pool.get(index)?;
-
+				Opcode::InvokeStatic { method_ref } => {
 					let class = method_ref.class;
 					let name = method_ref.name_and_type.name;
 					let desc = method_ref.name_and_type.descriptor;

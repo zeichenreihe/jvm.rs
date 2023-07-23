@@ -1,3 +1,4 @@
+use crate::classfile::{ClassInfo, FieldRefInfo, InterfaceMethodRefInfo, InvokeDynamicInfo, MethodRefInfo};
 use crate::errors::ClassFileParseError;
 
 #[warn(missing_docs)]
@@ -122,7 +123,7 @@ pub enum Opcode { // 6.5
 	///
 	/// # Run-time Exceptions
 	/// - If `count` is less than zero, throw a `java.lang.NegativeArraySizeException`.
-	ANewArray { cp_index: u16 },
+	ANewArray { class: ClassInfo },
 	/// Return `reference` from method.
 	///
 	/// # Operand Stack
@@ -331,7 +332,7 @@ pub enum Opcode { // 6.5
 	/// - If `arrayref` is `null`, throw a `java.lang.NullPointerException`.
 	/// - If `index` is not within the bounds of the array referenced by `arrayref`, throw an `java.lang.ArrayIndexOutOfBoundsException`.
 	CAStore,
-	CheckCast { cp_index: u16 },
+	CheckCast { class: ClassInfo },
 	D2f,
 	D2i,
 	D2l,
@@ -403,8 +404,8 @@ pub enum Opcode { // 6.5
 	/// See [Opcode::FStore0].
 	FStore3,
 	FSub,
-	GetField { cp_index: u16 },
-	GetStatic { cp_index: u16 },
+	GetField { field_ref: FieldRefInfo },
+	GetStatic { field_ref: FieldRefInfo },
 	/// Branch always.
 	///
 	/// # Format
@@ -485,12 +486,12 @@ pub enum Opcode { // 6.5
 	ImpDep1, ImpDep2,
 	IMul,
 	INeg,
-	InstanceOf { cp_index: u16 },
-	InvokeDynamic { cp_index: u16, zero1: u8, zero2: u8 },
-	InvokeInterface { cp_index: u16, count: u8, zero: u8 },
-	InvokeSpecial { cp_index: u16 },
-	InvokeStatic { cp_index: u16 },
-	InvokeVirtual { cp_index: u16 },
+	InstanceOf { class: ClassInfo },
+	InvokeDynamic { call_site: InvokeDynamicInfo, zero1: u8, zero2: u8 },
+	InvokeInterface { method_ref: InterfaceMethodRefInfo, count: u8, zero: u8 },
+	InvokeSpecial { method_ref: MethodRefInfo },
+	InvokeStatic { method_ref: MethodRefInfo },
+	InvokeVirtual { method_ref: MethodRefInfo },
 	IOr,
 	IRem,
 	IReturn,
@@ -631,8 +632,8 @@ pub enum Opcode { // 6.5
 	/// created and must be non-negative. The `count1` is the desired length in the first dimension, `count2` in the second, etc.
 	///
 	/// ...; todo: fill in
-	MultiANewArray { cp_index: u16, dimensions: u8 },
-	New { cp_index: u16 },
+	MultiANewArray { class: ClassInfo, dimensions: u8 },
+	New { class: ClassInfo },
 	NewArray { a_type: ArrayType },
 	/// Do nothing.
 	///
@@ -644,8 +645,8 @@ pub enum Opcode { // 6.5
 	Nop,
 	Pop,
 	Pop2,
-	PutField { cp_index: u16 },
-	PutStatic { cp_index: u16 },
+	PutField { field_ref: FieldRefInfo },
+	PutStatic { field_ref: FieldRefInfo },
 	Ret { lv_index: u8 },
 	Return,
 	SALoad,

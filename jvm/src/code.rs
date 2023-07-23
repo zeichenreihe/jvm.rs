@@ -66,6 +66,10 @@ impl CodeReader {
 		Ok(u16::from_be_bytes(slice))
 	}
 
+	fn get_u16_as_usize(&mut self) -> Result<usize, OutOfBoundsError> {
+		Ok(self.get_u16()? as usize) // TODO: can this panic?
+	}
+
 	fn get_i32(&mut self) -> Result<i32, OutOfBoundsError> {
 		let size = size_of::<i16>();
 		let slice = self.bytes
@@ -149,7 +153,7 @@ impl Code {
 				0x2c => Opcode::ALoad2,
 				0x2d => Opcode::ALoad3,
 				0xbd => Opcode::ANewArray {
-					cp_index: bytes.get_u16()?,
+					class: constant_pool.get(bytes.get_u16_as_usize()?)?
 				},
 				0xb0 => Opcode::AReturn,
 				0xbe => Opcode::ArrayLength,
@@ -170,7 +174,7 @@ impl Code {
 				0x34 => Opcode::CALoad,
 				0x55 => Opcode::CAStore,
 				0xc0 => Opcode::CheckCast {
-					cp_index: bytes.get_u16()?,
+					class: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0x90 => Opcode::D2f,
 				0x8e => Opcode::D2i,
@@ -240,10 +244,10 @@ impl Code {
 				0x46 => Opcode::FStore3,
 				0x66 => Opcode::FSub,
 				0xb4 => Opcode::GetField {
-					cp_index: bytes.get_u16()?,
+					field_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0xb2 => Opcode::GetStatic {
-					cp_index: bytes.get_u16()?,
+					field_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0xa7 => Opcode::Goto {
 					branch_target: bytes.get_i16_branchoffset()?,
@@ -333,26 +337,26 @@ impl Code {
 				0x68 => Opcode::IMul,
 				0x74 => Opcode::INeg,
 				0xc1 => Opcode::InstanceOf {
-					cp_index: bytes.get_u16()?,
+					class: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0xba => Opcode::InvokeDynamic {
-					cp_index: bytes.get_u16()?,
+					call_site: constant_pool.get(bytes.get_u16_as_usize()?)?,
 					zero1: bytes.get_u8()?, // == 0
 					zero2: bytes.get_u8()?, // == 0
 				},
 				0xb9 => Opcode::InvokeInterface {
-					cp_index: bytes.get_u16()?,
+					method_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
 					count: bytes.get_u8()?,
 					zero: bytes.get_u8()?, // == 0
 				},
 				0xb7 => Opcode::InvokeSpecial {
-					cp_index: bytes.get_u16()?,
+					method_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0xb8 => Opcode::InvokeStatic {
-					cp_index: bytes.get_u16()?,
+					method_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0xb6 => Opcode::InvokeVirtual {
-					cp_index: bytes.get_u16()?,
+					method_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0x80 => Opcode::IOr,
 				0x70 => Opcode::IRem,
@@ -385,13 +389,13 @@ impl Code {
 				0x94 => Opcode::LCmp,
 				0x09 => Opcode::LConst0,
 				0x0a => Opcode::LConst1,
-				0x12 => Opcode::Ldc {
+				0x12 => Opcode::Ldc { // TODO: make this store the *Info structure here
 					cp_index: bytes.get_u8()? as u16,
 				},
-				0x13 => Opcode::LdcW {
+				0x13 => Opcode::LdcW { // TODO: make this store the *Info structure here
 					cp_index: bytes.get_u16()?,
 				},
-				0x14 => Opcode::Ldc2W {
+				0x14 => Opcode::Ldc2W { // TODO: make this store the *Info structure here
 					cp_index: bytes.get_u16()?,
 				},
 				0x6d => Opcode::LDiv,
@@ -440,11 +444,11 @@ impl Code {
 				0xc2 => Opcode::MonitorEnter,
 				0xc3 => Opcode::MonitorExit,
 				0xc5 => Opcode::MultiANewArray {
-					cp_index: bytes.get_u16()?,
+					class: constant_pool.get(bytes.get_u16_as_usize()?)?,
 					dimensions: bytes.get_u8()?, // >= 1
 				},
 				0xbb => Opcode::New {
-					cp_index: bytes.get_u16()?,
+					class: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0xbc => Opcode::NewArray {
 					a_type: ArrayType::parse(bytes.get_u8()?)?,
@@ -453,10 +457,10 @@ impl Code {
 				0x57 => Opcode::Pop,
 				0x58 => Opcode::Pop2,
 				0xb5 => Opcode::PutField {
-					cp_index: bytes.get_u16()?,
+					field_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0xb3 => Opcode::PutStatic {
-					cp_index: bytes.get_u16()?,
+					field_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
 				},
 				0xa9 => Opcode::Ret {
 					lv_index: bytes.get_u8()?,
