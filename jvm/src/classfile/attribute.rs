@@ -121,6 +121,7 @@ impl CodeAttribute {
 			});
 
 		// ignore any, but the first StackMapTableAttribute
+		// TODO: there may be only one
 		let stack_map_table = stack_map_tables.into_iter()
 			.next()
 			.unwrap_or_else(|| StackMapTableAttribute {
@@ -204,8 +205,8 @@ impl StackMapTableAttribute {
 	fn map_pc(mut self, pc_map: &PcMap) -> Result<StackMapTableAttribute, ClassFileParseError> {
 		Ok(StackMapTableAttribute {
 			entries: self.entries.into_iter()
-				.map(|frame| frame.map_pc(pc_map).unwrap()) // TODO: panic!
-				.collect(),
+				.map(|e| e.map_pc(pc_map))
+				.collect::<Result<Vec<_>, _>>()?,
 		})
 	}
 }
@@ -474,17 +475,17 @@ impl StackMapFrame {
 			Self::Append { bytecode_offset, locals } => Self::Append {
 				bytecode_offset: pc_map.map(bytecode_offset)?,
 				locals: locals.into_iter()
-					.map(|verification_type_info| verification_type_info.map_pc(pc_map).unwrap()) // TODO: panic!
-					.collect(),
+					.map(|verification_type_info| verification_type_info.map_pc(pc_map))
+					.collect::<Result<Vec<_>, _>>()?,
 			},
 			Self::Full { bytecode_offset, locals, stack } => Self::Full {
 				bytecode_offset: pc_map.map(bytecode_offset)?,
 				locals: locals.into_iter()
-					.map(|verification_type_info| verification_type_info.map_pc(pc_map).unwrap()) // TODO: panic!
-					.collect(),
+					.map(|verification_type_info| verification_type_info.map_pc(pc_map))
+					.collect::<Result<Vec<_>, _>>()?,
 				stack: stack.into_iter()
-					.map(|verification_type_info| verification_type_info.map_pc(pc_map).unwrap()) // TODO: panic!
-					.collect(),
+					.map(|verification_type_info| verification_type_info.map_pc(pc_map))
+					.collect::<Result<Vec<_>, _>>()?,
 			}
 		})
 	}
@@ -622,9 +623,12 @@ impl LineNumberTableAttribute {
 		})
 	}
 
-	fn map_pc(mut self, pc_map: &PcMap) -> Result<LineNumberTableAttribute, ClassFileParseError> {
-		self.line_number_table.iter_mut().for_each(|e| e.start_pc = pc_map.map(e.start_pc).unwrap()); // TODO: panic!
-		Ok(self)
+	fn map_pc(self, pc_map: &PcMap) -> Result<LineNumberTableAttribute, ClassFileParseError> {
+		Ok(LineNumberTableAttribute {
+			line_number_table: self.line_number_table.into_iter()
+				.map(|e| e.map_pc(pc_map))
+				.collect::<Result<Vec<_>, _>>()?,
+		})
 	}
 }
 
@@ -638,6 +642,13 @@ impl LineNumberTableEntry {
 		Ok(LineNumberTableEntry {
 			start_pc: parse_u2_as_usize(reader)?,
 			line_number: parse_u2(reader)?,
+		})
+	}
+
+	fn map_pc(self, pc_map: &PcMap) -> Result<LineNumberTableEntry, ClassFileParseError> {
+		Ok(LineNumberTableEntry {
+			start_pc: pc_map.map(self.start_pc)?,
+			line_number: self.line_number,
 		})
 	}
 }
@@ -657,12 +668,12 @@ impl LocalVariableTableAttribute {
 		})
 	}
 
-	fn map_pc(mut self, pc_map: &PcMap) -> Result<LocalVariableTableAttribute, ClassFileParseError> {
-		self.local_variable_table.iter_mut().for_each(|e| {
-			e.start_pc = pc_map.map(e.start_pc).unwrap(); // TODO: panic!
-			e.end_pc = pc_map.map(e.end_pc).unwrap();
-		});
-		Ok(self)
+	fn map_pc(self, pc_map: &PcMap) -> Result<LocalVariableTableAttribute, ClassFileParseError> {
+		Ok(LocalVariableTableAttribute {
+			local_variable_table: self.local_variable_table.into_iter()
+				.map(|e| e.map_pc(pc_map))
+				.collect::<Result<Vec<_>, _>>()?,
+		})
 	}
 }
 
@@ -685,6 +696,14 @@ impl LocalVariableTableEntry {
 			lv_index: parse_u2(reader)?,
 		})
 	}
+
+	fn map_pc(self, pc_map: &PcMap) -> Result<LocalVariableTableEntry, ClassFileParseError> {
+		Ok(LocalVariableTableEntry {
+			start_pc: pc_map.map(self.start_pc)?,
+			end_pc: pc_map.map(self.end_pc)?,
+			..self
+		})
+	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -702,12 +721,12 @@ impl LocalVariableTypeTableAttribute {
 		})
 	}
 
-	fn map_pc(mut self, pc_map: &PcMap) -> Result<LocalVariableTypeTableAttribute, ClassFileParseError> {
-		self.local_variable_type_table.iter_mut().for_each(|e| {
-			e.start_pc = pc_map.map(e.start_pc).unwrap(); // TODO: panic!
-			e.end_pc = pc_map.map(e.end_pc).unwrap();
-		});
-		Ok(self)
+	fn map_pc(self, pc_map: &PcMap) -> Result<LocalVariableTypeTableAttribute, ClassFileParseError> {
+		Ok(LocalVariableTypeTableAttribute {
+			local_variable_type_table: self.local_variable_type_table.into_iter()
+				.map(|e| e.map_pc(pc_map))
+				.collect::<Result<Vec<_>, _>>()?,
+		})
 	}
 }
 
@@ -728,6 +747,14 @@ impl LocalVariableTypeTableEntry {
 			name: constant_pool.parse_index(reader)?,
 			signature: constant_pool.parse_index(reader)?,
 			lv_index: parse_u2(reader)?,
+		})
+	}
+
+	fn map_pc(self, pc_map: &PcMap) -> Result<LocalVariableTypeTableEntry, ClassFileParseError> {
+		Ok(LocalVariableTypeTableEntry {
+			start_pc: pc_map.map(self.start_pc)?,
+			end_pc: pc_map.map(self.end_pc)?,
+			..self
 		})
 	}
 }
