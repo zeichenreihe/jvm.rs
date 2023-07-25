@@ -36,25 +36,28 @@ ReturnDescriptor:
  */
 
 use itertools::{Itertools, PeekingNext};
-use crate::classfile::Utf8Info;
+use crate::classfile::{ClassInfo, Utf8Info};
+use crate::errors::DescriptorParseError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BaseOrObjectType {
 	B, C, D, F, I, J, S, Z,
-	Object(Utf8Info),
+	Object(ClassInfo),
 }
 impl BaseOrObjectType {
-	fn parse_iter<T: Iterator<Item = u8> + PeekingNext>(mut iter: T) -> Result<BaseOrObjectType, ()> {
+	fn parse_iter<T: Iterator<Item = u8> + PeekingNext>(mut iter: T) -> Result<BaseOrObjectType, DescriptorParseError> {
 		Ok(match iter.next() {
 			Some(b'L') => {
 				let bytes: Vec<u8> = iter
 					.peeking_take_while(|&ch| ch != b';')
 					.collect();
 				if let Some(b';') = iter.next() {} else {
-					panic!("no semicolon at the end!");
+					return Err(DescriptorParseError::NoSemicolonFound(iter.collect()));
 				}
-				BaseOrObjectType::Object(Utf8Info {
-					bytes,
+				BaseOrObjectType::Object(ClassInfo {
+					name: Utf8Info {
+						bytes
+					},
 				})
 			},
 			Some(b'B') => BaseOrObjectType::B,
@@ -65,7 +68,8 @@ impl BaseOrObjectType {
 			Some(b'J') => BaseOrObjectType::J,
 			Some(b'S') => BaseOrObjectType::S,
 			Some(b'Z') => BaseOrObjectType::Z,
-			_ => panic!("not a valid desc"),
+			Some(x) => return Err(DescriptorParseError::InvalidDescriptor(x, iter.collect())),
+			None => return Err(DescriptorParseError::UnexpectedEnd(iter.collect())),
 		})
 	}
 
@@ -92,10 +96,10 @@ pub struct FieldDescriptor {
 }
 
 impl FieldDescriptor {
-	fn parse_iter<T: Iterator<Item = u8> + PeekingNext>(iter: &mut T) -> Result<FieldDescriptor, ()> {
+	fn parse_iter<T: Iterator<Item = u8> + PeekingNext>(iter: &mut T) -> Result<FieldDescriptor, DescriptorParseError> {
 		let array_index = iter.peeking_take_while(|&ch| ch == b'[').count();
 		if array_index > 255 {
-			panic!("array index may not be >255");
+			return Err(DescriptorParseError::ArrayDimensionTooLarge(array_index, iter.collect()));
 		}
 
 		Ok(FieldDescriptor {
@@ -103,13 +107,13 @@ impl FieldDescriptor {
 			base_or_object_type: BaseOrObjectType::parse_iter(iter)?,
 		})
 	}
-	pub fn parse(descriptor: &Utf8Info) -> Result<FieldDescriptor, ()> {
+	pub fn parse(descriptor: &Utf8Info) -> Result<FieldDescriptor, DescriptorParseError> {
 		let mut iter = descriptor.bytes.iter().copied().peekable();
 
 		let descriptor = FieldDescriptor::parse_iter(&mut iter)?;
 
-		if let Some(_) = iter.next() {
-			panic!("field descriptor must end");
+		if let Some(_) = iter.peek() {
+			return Err(DescriptorParseError::UnexpectedEnd(iter.collect()));
 		}
 
 		Ok(descriptor)
@@ -125,18 +129,20 @@ pub struct MethodDescriptor {
 }
 
 impl MethodDescriptor {
-	pub fn parse(descriptor: &Utf8Info) -> Result<MethodDescriptor, ()> {
+	pub fn parse(descriptor: &Utf8Info) -> Result<MethodDescriptor, DescriptorParseError> {
 		let mut iter = descriptor.bytes.iter().copied().peekable();
 
 		let mut parameters = Vec::new();
 
-		if let Some(b'(') = iter.next() {} else {
-			panic!("method desc doesn't start with '('.");
+		match iter.peek() {
+			Some(b'(') => { let _parenthesis = iter.next(); },
+			_ => return Err(DescriptorParseError::NoOpeningParenthesisFound(descriptor.bytes.clone()))
 		}
 
 		loop {
 			match iter.peek() {
-				Some(b')') | None => break,
+				Some(b')') => break,
+				None => return Err(DescriptorParseError::UnexpectedEnd(descriptor.bytes.clone())),
 				_ => {},
 			}
 
@@ -144,19 +150,24 @@ impl MethodDescriptor {
 		}
 
 		if let Some(b')') = iter.next() {} else {
-			panic!("method desc doesn't contain ')'.");
+			return Err(DescriptorParseError::NoClosingParenthesisFound(descriptor.bytes.clone()));
 		}
 
-		// TODO: if it's V, you can't have an array of it...
 		let return_array_index = iter.peeking_take_while(|&ch| ch == b'[').count();
 		if return_array_index > 255 {
-			panic!("array index may not be >255");
+			return Err(DescriptorParseError::ArrayDimensionTooLarge(return_array_index, descriptor.bytes.clone()));
 		}
 
 		let return_descriptor = ReturnDescriptor::parse_iter(&mut iter)?;
 
+		if matches!(return_descriptor, ReturnDescriptor::V) {
+			if return_array_index > 0 {
+				todo!("if it's V, you can't have an array of it...") // make the design better, types!
+			}
+		}
+
 		if let Some(_) = iter.next() {
-			panic!("method descriptor must end");
+			return Err(DescriptorParseError::UnexpectedEnd(iter.collect()));
 		}
 
 		Ok(MethodDescriptor {
@@ -173,14 +184,14 @@ pub enum ReturnDescriptor {
 	Object(Utf8Info),
 }
 impl ReturnDescriptor {
-	fn parse_iter<T: Iterator<Item = u8> + PeekingNext>(iter: &mut T) -> Result<ReturnDescriptor, ()> {
+	fn parse_iter<T: Iterator<Item = u8> + PeekingNext>(iter: &mut T) -> Result<ReturnDescriptor, DescriptorParseError> {
 		Ok(match iter.next() {
 			Some(b'L') => {
 				let bytes: Vec<u8> = iter
 					.peeking_take_while(|&ch| ch != b';')
 					.collect();
 				if let Some(b';') = iter.next() {} else {
-					panic!("no semicolon at the end!");
+					return Err(DescriptorParseError::NoSemicolonFound(iter.collect()));
 				}
 				ReturnDescriptor::Object(Utf8Info {
 					bytes,
@@ -195,14 +206,15 @@ impl ReturnDescriptor {
 			Some(b'S') => ReturnDescriptor::S,
 			Some(b'V') => ReturnDescriptor::V, // void
 			Some(b'Z') => ReturnDescriptor::Z,
-			_ => panic!("not a valid desc"),
+			Some(x) => return Err(DescriptorParseError::InvalidDescriptor(x, iter.collect())),
+			None => return Err(DescriptorParseError::UnexpectedEnd(iter.collect())),
 		})
 	}
 }
 
 #[cfg(test)]
 mod testing {
-	use crate::classfile::Utf8Info;
+	use crate::classfile::{ClassInfo, Utf8Info};
 	use crate::types::descriptor::{BaseOrObjectType, FieldDescriptor, MethodDescriptor, ReturnDescriptor};
 
 	#[test]
@@ -211,7 +223,7 @@ mod testing {
 		assert_eq!(FieldDescriptor::parse(&desc).unwrap(), FieldDescriptor {
 			array_dimension: 2,
 			base_or_object_type: BaseOrObjectType::Object(
-				Utf8Info::from("[[net//<init>::/this_is_a_\"test$$023$()/Class")
+				ClassInfo::from("[[net//<init>::/this_is_a_\"test$$023$()/Class")
 			),
 		});
 	}
@@ -232,7 +244,7 @@ mod testing {
 				FieldDescriptor {
 					array_dimension: 1,
 					base_or_object_type: BaseOrObjectType::Object(
-						Utf8Info::from("[[net//<init>::/this_is_a_\"test$$023$()/Class")
+						ClassInfo::from("[[net//<init>::/this_is_a_\"test$$023$()/Class")
 					)
 				},
 				FieldDescriptor {

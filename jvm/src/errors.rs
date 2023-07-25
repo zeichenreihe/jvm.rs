@@ -3,6 +3,23 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use crate::classfile::ClassInfo;
 
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DescriptorParseError {
+	ArrayDimensionTooLarge(usize, Vec<u8>),
+	UnexpectedEnd(Vec<u8>),
+	NoOpeningParenthesisFound(Vec<u8>), // starts with that even...
+	NoClosingParenthesisFound(Vec<u8>),
+	NoSemicolonFound(Vec<u8>),
+	InvalidDescriptor(u8, Vec<u8>),
+}
+impl Error for DescriptorParseError {}
+impl Display for DescriptorParseError {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		std::fmt::Debug::fmt(self, f)
+	}
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct OutOfBoundsError;
 
@@ -14,11 +31,10 @@ impl Display for OutOfBoundsError {
 
 impl Error for OutOfBoundsError {}
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConstantPoolTagMismatchError {
 	pub expected: String,
 	pub actual: String,
-	pub msg: String,
 }
 
 impl Display for ConstantPoolTagMismatchError {
@@ -29,16 +45,25 @@ impl Display for ConstantPoolTagMismatchError {
 			.finish()
 	}
 }
-impl Debug for ConstantPoolTagMismatchError {
+
+impl Error for ConstantPoolTagMismatchError {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttributeTagMismatchError {
+	pub expected: String,
+	pub actual: String,
+}
+
+impl Display for AttributeTagMismatchError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("ConstantPoolTagMismatchError")
+		f.debug_struct("AttributeTagMismatchError")
 			.field("expected", &self.expected)
 			.field("actual", &self.actual)
 			.finish()
 	}
 }
 
-impl Error for ConstantPoolTagMismatchError {}
+impl Error for AttributeTagMismatchError {}
 
 #[derive(Debug)]
 pub enum ClassFileParseError {
@@ -52,15 +77,17 @@ pub enum ClassFileParseError {
 
 	WrongConstantPoolTag,
 	InvalidAttributeLength { expected: u32, actual: u32 },
-	InvalidConstantPoolTag(ConstantPoolTagMismatchError),
 
-	NoSuchAttribute(&'static str),
+	ConstantPoolTagMismatchError(ConstantPoolTagMismatchError),
+	AttributeTagMismatchError(AttributeTagMismatchError),
+
 	NoSuchConstantPoolEntry(usize),
 
 	InvalidMagic(u32),
 
 	IoError(std::io::Error),
-	OutOfBounds(OutOfBoundsError),
+	OutOfBoundsError(OutOfBoundsError),
+	DescriptorParseError(DescriptorParseError),
 }
 
 impl Display for ClassFileParseError {
@@ -74,6 +101,11 @@ impl Error for ClassFileParseError {}
 impl From<std::io::Error> for ClassFileParseError {
 	fn from(value: std::io::Error) -> Self {
 		Self::IoError(value)
+	}
+}
+impl From<DescriptorParseError> for ClassFileParseError {
+	fn from(value: DescriptorParseError) -> Self {
+		Self::DescriptorParseError(value)
 	}
 }
 
@@ -91,7 +123,12 @@ impl From<std::string::FromUtf8Error> for ClassFileParseError {
 
 impl From<ConstantPoolTagMismatchError> for ClassFileParseError {
 	fn from(value: ConstantPoolTagMismatchError) -> Self {
-		ClassFileParseError::InvalidConstantPoolTag(value)
+		ClassFileParseError::ConstantPoolTagMismatchError(value)
+	}
+}
+impl From<AttributeTagMismatchError> for ClassFileParseError {
+	fn from(value: AttributeTagMismatchError) -> Self {
+		ClassFileParseError::AttributeTagMismatchError(value)
 	}
 }
 
@@ -103,13 +140,14 @@ impl From<Infallible> for ClassFileParseError {
 
 impl From<OutOfBoundsError> for ClassFileParseError {
 	fn from(value: OutOfBoundsError) -> Self {
-		Self::OutOfBounds(value)
+		Self::OutOfBoundsError(value)
 	}
 }
 
 #[derive(Debug)]
 pub enum ClassLoadError {
 	ParseError(ClassFileParseError),
+	DescriptorParseError(DescriptorParseError),
 
 	NoClassDefFoundError(ClassInfo),
 	LinkageError(),
@@ -125,7 +163,11 @@ impl From<ClassFileParseError> for ClassLoadError {
 		Self::ParseError(value)
 	}
 }*/
-
+impl From<DescriptorParseError> for ClassLoadError {
+	fn from(value: DescriptorParseError) -> Self {
+		Self::DescriptorParseError(value)
+	}
+}
 
 #[derive(Debug)]
 pub enum RuntimeError {
