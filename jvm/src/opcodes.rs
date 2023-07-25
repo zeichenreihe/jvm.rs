@@ -1,4 +1,4 @@
-use crate::classfile::{ClassInfo, FieldRefInfo, InterfaceMethodRefInfo, InvokeDynamicInfo, MethodRefInfo};
+use crate::classfile::{ClassInfo, DoubleInfo, FieldRefInfo, FloatInfo, IntegerInfo, InterfaceMethodRefInfo, InvokeDynamicInfo, LongInfo, MethodHandleInfo, MethodRefInfo, MethodTypeInfo, StringInfo};
 use crate::errors::ClassFileParseError;
 
 #[warn(missing_docs)]
@@ -519,9 +519,99 @@ pub enum Opcode { // 6.5
 	LAStore,
 	LCmp,
 	LConst0, LConst1,
-	Ldc { cp_index: u16 },
-	LdcW { cp_index: u16 },
-	Ldc2W { cp_index: u16 },
+	/// Push item from run-time constant pool.
+	///
+	/// # Format
+	/// ```
+	/// ldc
+	/// index
+	/// ```
+	/// or
+	/// ```
+	/// ldc_w
+	/// indexbyte1
+	/// indexbyte2
+	/// ```
+	///
+	/// # Operand Stack
+	/// ```
+	/// ... ->
+	/// ..., value
+	/// ```
+	///
+	/// # Description
+	/// - The `index` is an unsigned byte that must be a valid index into the run-time constant pool of the current class (§2.6). The run-time constant pool
+	/// entry at `index` either must be a run-time constant of type `int` or `float`, or a `reference` to a string literal, or a symbolic reference to a class,
+	/// method type, or method handle (§5.1).
+	/// - The unsigned `indexbyte1` and `indexbyte2` are assembled into an unsigned 16-bit `index` into the run-time constant pool of the current class (§2.6),
+	/// where the value of the `index` is calculated as `(indexbyte1 << 8) | indexbyte2`. The `index` must be a valid index into the run-time constant pool of
+	/// the current class. The run-time constant pool entry at the index either must be a run-time constant of type `int` or `float`, or a `reference` to a
+	/// string literal, or a symbolic reference to a class, method type, or method handle (§5.1).
+	///
+	/// If the run-time constant pool entry is a run-time constant of type `int` or `float`, the numeric value of that run-time constant is pushed onto the
+	/// operand stack as an `int` or `float`, respectively.
+	///
+	/// Otherwise, if the run-time constant pool entry is a reference to an instance of class `String` representing a string literal (§5.1), then a reference
+	/// to that instance, `value`, is pushed onto the operand stack.
+	///
+	/// Otherwise, if the run-time constant pool entry is a symbolic reference to a class (§5.1), then the named class is resolved (§5.4.3.1) and a reference
+	/// to the `Class` object representing that class, `value`, is pushed onto the operand stack.
+	///
+	/// Otherwise, the run-time constant pool entry must be a symbolic reference to a method type or a method handle (§5.1). The method type or method handle
+	/// is resolved (§5.4.3.5) and a reference to the resulting instance of `java.lang.invoke.MethodType` or `java.lang.invoke.MethodHandle`, `value`, is
+	/// pushed onto the operand stack.
+	///
+	/// # Linking Exceptions
+	/// During resolution of a symbolic reference to a class, any of the exceptions pertaining to class resolution (§5.4.3.1) can be thrown.
+	///
+	/// During resolution of a symbolic reference to a method type or method handle, any of the exception pertaining to method type or method handle
+	/// resolution (§5.4.3.5) can be thrown.
+	///
+	/// # Notes
+	/// The `ldc` instruction can only be used to push a value of type `float` taken from the float value set (§2.3.2) because a constant of type `float` in
+	/// the constant pool (§4.4.4) must be taken from the float value set.
+	///
+	/// The `ldc_w` instruction is identical to the `ldc` instruction except for its wider run-time constant pool index.
+	LdcInt { int: IntegerInfo },
+	/// See [Opcode::LdcInt].
+	LdcFloat { float: FloatInfo },
+	/// See [Opcode::LdcInt].
+	LdcReferenceString { string: StringInfo },
+	/// See [Opcode::LdcInt].
+	LdcReferenceClass { class: ClassInfo },
+	/// See [Opcode::LdcInt].
+	LdcReferenceMethodType { method_type: MethodTypeInfo },
+	/// See [Opcode::LdcInt].
+	LdcReferenceMethodHandle { method_handle: MethodHandleInfo },
+	/// Push long or double from run-time constant pool (wide index).
+	///
+	/// # Format
+	/// ```
+	/// ldc2_w
+	/// indexbyte1
+	/// indexbyte2
+	/// ```
+	///
+	/// # Operand Stack
+	/// ```
+	/// ... ->
+	/// ..., value
+	/// ```
+	///
+	/// # Description
+	/// The unsigned `indexbyte1` and `indexbyte2` are assembled into an unsigned 16-bit `index` into the run-time constant pool of the current class (§2.6),
+	/// where the value of the `index` is calculated as `(indexbyte1 << 8) | indexbyte2`. The `index` must be a valid index into the run-time constant pool of
+	/// the current class. The run-time constant pool entry at the `index` must be a run-time constant of type `long` or `double` (§5.1). The numeric value of
+	/// that run-time constant is pushed onto the operand stack as a `long` or `double`, respectively.
+	///
+	/// # Notes
+	/// Only a wide-index version of the `ldc2_w` instruction exists; there is no `ldc2` instruction that pushes a long or double with a single-byte `index`.
+	///
+	/// The `ldc2_w` instruction can only be used to push a value of type `double` taken from the double value set (§2.3.2) because a constant of type `double`
+	/// in the constant pool (§4.4.5) must be taken from the double value set.
+	Ldc2WDouble { double: DoubleInfo },
+	/// See [Opcode::Ldc2WDouble].
+	Ldc2WLong { long: LongInfo },
 	LDiv,
 	LLoad { lv_index: u8 },
 	LLoad0,

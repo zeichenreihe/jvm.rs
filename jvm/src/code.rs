@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::mem::size_of;
-use crate::classfile::ConstantPool;
+use crate::classfile::{ConstantPool, ConstantPoolElement};
 use crate::errors::{ClassFileParseError, OutOfBoundsError};
 use crate::opcodes::{ArrayType, Opcode};
 
@@ -64,6 +64,10 @@ impl CodeReader {
 			.try_into().expect("unreachable: the slice is guaranteed to be 4 in length");
 		self.pos += size;
 		Ok(u16::from_be_bytes(slice))
+	}
+
+	fn get_u8_as_usize(&mut self) -> Result<usize, OutOfBoundsError> {
+		Ok(self.get_u8()? as usize) // TODO: can this panic?
 	}
 
 	fn get_u16_as_usize(&mut self) -> Result<usize, OutOfBoundsError> {
@@ -389,14 +393,50 @@ impl Code {
 				0x94 => Opcode::LCmp,
 				0x09 => Opcode::LConst0,
 				0x0a => Opcode::LConst1,
-				0x12 => Opcode::Ldc { // TODO: make this store the *Info structure here
-					cp_index: bytes.get_u8()? as u16,
+				opcode @ (0x12 | 0x13) => {
+					let cp_index = match opcode {
+						0x12 => { // ldc
+							bytes.get_u8_as_usize()?
+						},
+						0x13 => { // ldc_w
+							bytes.get_u16_as_usize()?
+						},
+						_ => unreachable!(),
+					};
+
+					match constant_pool.get(cp_index)? {
+						ConstantPoolElement::Integer(int) => {
+							Opcode::LdcInt { int }
+						},
+						ConstantPoolElement::Float(float) => {
+							Opcode::LdcFloat { float }
+						},
+						ConstantPoolElement::String(string) => {
+							Opcode::LdcReferenceString { string }
+						},
+						ConstantPoolElement::Class(class) => {
+							Opcode::LdcReferenceClass { class }
+						},
+						ConstantPoolElement::MethodType(method_type) => {
+							Opcode::LdcReferenceMethodType { method_type }
+						},
+						ConstantPoolElement::MethodHandle(method_handle) => {
+							Opcode::LdcReferenceMethodHandle { method_handle }
+						},
+						_ => todo!("handle error"),
+					}
 				},
-				0x13 => Opcode::LdcW { // TODO: make this store the *Info structure here
-					cp_index: bytes.get_u16()?,
-				},
-				0x14 => Opcode::Ldc2W { // TODO: make this store the *Info structure here
-					cp_index: bytes.get_u16()?,
+				0x14 => { // ldc2_w
+					let cp_index = bytes.get_u16_as_usize()?;
+					match constant_pool.get(cp_index)? {
+						ConstantPoolElement::Long(long) => {
+							Opcode::Ldc2WLong { long }
+						},
+						ConstantPoolElement::Double(double) => {
+							Opcode::Ldc2WDouble { double }
+						},
+						_ => todo!("handle error"),
+					}
 				},
 				0x6d => Opcode::LDiv,
 				0x16 => Opcode::LLoad {

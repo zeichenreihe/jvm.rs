@@ -252,9 +252,8 @@ impl VmStackFrame {
 						self.pop_stack()?;
 					}
 				},
-				Opcode::Ldc { cp_index } => {
-					let index = cp_index as usize;
-					let item: ConstantPoolElement = self.class.class.constant_pool.get(index)?;
+				Opcode::LdcReferenceString { string } => {
+					let item = string;
 					println!("{item:?}");
 					self.push_stack(StackFrameLvType::Reference(3444))?;
 				},
