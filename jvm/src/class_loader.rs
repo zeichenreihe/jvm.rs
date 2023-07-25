@@ -102,7 +102,7 @@ impl ClassLoader {
 		let mut non_static_field_offset = 0;
 		let non_static_fields: HashMap<_, _> = non_static_fields.iter()
 			.map(|&field| {
-				let descriptor = FieldDescriptor::parse(&field.descriptor).unwrap(); // TODO: panic, fix this
+				let descriptor = FieldDescriptor::parse(&field.descriptor)?;
 				let size = descriptor.base_or_object_type.get_size() * 4;
 				let f = Field {
 					descriptor,
@@ -111,15 +111,15 @@ impl ClassLoader {
 					field: field.clone(),
 				};
 				non_static_field_offset += size;
-				(
+				Ok::<_, ClassLoadError>((
 					NameAndTypeInfo {
 						name: field.name.clone(),
 						descriptor: field.descriptor.clone(),
 					},
 					f
-				)
+				))
 			})
-			.collect();
+			.collect::<Result<_, _>>()?;
 
 		let mut static_field_offset = 0;
 

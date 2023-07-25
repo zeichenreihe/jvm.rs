@@ -9,24 +9,6 @@ use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CpIndex(u16);
 
-macro_rules! try_from_enum_impl {
-	($enum_type:ty, $pattern:path, $inner_type:ty, $error_type:ty) => {
-		impl TryFrom<$enum_type> for $inner_type {
-			type Error = $error_type;
-			fn try_from(value: $enum_type) -> Result<Self, Self::Error> {
-				match value {
-					$pattern(value) => Ok(value),
-					v => Err(Self::Error {
-						expected: stringify!($pattern).to_string(),
-						actual: format!("{:?}", v),
-						msg: "".to_string(),
-					}),
-				}
-			}
-		}
-	}
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CpInfoClass {
 	name_index: CpIndex, // Utf8
@@ -50,9 +32,11 @@ pub struct ClassInfo {
 	pub name: Utf8Info,
 }
 
-impl From<&str> for ClassInfo {
-	fn from(value: &str) -> Self {
-		ClassInfo { name: Utf8Info::from(value) }
+impl<T> From<T> for ClassInfo where Utf8Info: From<T> {
+	fn from(value: T) -> Self {
+		ClassInfo {
+			name: Utf8Info::from(value),
+		}
 	}
 }
 
@@ -312,12 +296,19 @@ impl From<CpInfoUtf8> for Utf8Info {
 }
 impl From<&str> for Utf8Info {
 	fn from(value: &str) -> Self {
+		// TODO: this is hard. This is a place where illegal data could be stored. Use only with strings whose bytes are ascii printable.
 		Utf8Info { bytes: value.bytes().collect() }
+	}
+}
+impl From<Vec<u8>> for Utf8Info {
+	fn from(bytes: Vec<u8>) -> Self {
+		Utf8Info { bytes }
 	}
 }
 impl Display for Utf8Info {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		// todo!("that's hard, because of strange utf8 impl!")
+		// TODO: this is hard. This is a place where illegal data could be stored. Use only with strings whose bytes are ascii printable.
+		// that's hard, because of strange utf8 impl!
 		write!(f, "{}", String::from_utf8(self.bytes.clone()).unwrap())
 	}
 }
@@ -455,7 +446,7 @@ impl CpInfo {
 	}
 }
 impl CpInfo {
-	fn unwrap(&self, pool: &CpInfoVec) -> Result<ConstantPoolElement, ClassFileParseError> {
+	fn pool(&self, pool: &CpInfoVec) -> Result<ConstantPoolElement, ClassFileParseError> {
 		let v = match self {
 			CpInfo::Class(class) => ConstantPoolElement::Class(ClassInfo {
 				name: pool.get::<CpInfoUtf8>(&class.name_index)?.into(),
@@ -535,35 +526,52 @@ pub enum ConstantPoolElement {
 	MethodType(MethodTypeInfo), InvokeDynamic(InvokeDynamicInfo),
 }
 
-try_from_enum_impl!(CpInfo, CpInfo::Class, CpInfoClass, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::FieldRef, CpInfoFieldRef, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::MethodRef, CpInfoMethodRef, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::InterfaceMethodRef, CpInfoInterfaceMethodRef, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::String, CpInfoString, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::Integer, CpInfoInteger, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::Float, CpInfoFloat, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::Long, CpInfoLong, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::Double, CpInfoDouble, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::NameAndType, CpInfoNameAndType, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::Utf8, CpInfoUtf8, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::MethodHandle, CpInfoMethodHandle, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::MethodType, CpInfoMethodType, ConstantPoolTagMismatchError);
-try_from_enum_impl!(CpInfo, CpInfo::InvokeDynamic, CpInfoInvokeDynamic, ConstantPoolTagMismatchError);
+macro_rules! try_from_enum_impl {
+	($enum_type:ty, $pattern:path, $inner_type:ty) => {
+		impl TryFrom<$enum_type> for $inner_type {
+			type Error = ConstantPoolTagMismatchError;
+			fn try_from(value: $enum_type) -> Result<Self, Self::Error> {
+				match value {
+					$pattern(value) => Ok(value),
+					v => Err(ConstantPoolTagMismatchError {
+						expected: stringify!($pattern).to_string(),
+						actual: format!("{:?}", v),
+					}),
+				}
+			}
+		}
+	}
+}
 
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Class, ClassInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::FieldRef, FieldRefInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::MethodRef, MethodRefInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::InterfaceMethodRef, InterfaceMethodRefInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::String, StringInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Integer, IntegerInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Float, FloatInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Long, LongInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Double, DoubleInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::NameAndType, NameAndTypeInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Utf8, Utf8Info, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::MethodHandle, MethodHandleInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::MethodType, MethodTypeInfo, ConstantPoolTagMismatchError);
-try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::InvokeDynamic, InvokeDynamicInfo, ConstantPoolTagMismatchError);
+try_from_enum_impl!(CpInfo, CpInfo::Class, CpInfoClass);
+try_from_enum_impl!(CpInfo, CpInfo::FieldRef, CpInfoFieldRef);
+try_from_enum_impl!(CpInfo, CpInfo::MethodRef, CpInfoMethodRef);
+try_from_enum_impl!(CpInfo, CpInfo::InterfaceMethodRef, CpInfoInterfaceMethodRef);
+try_from_enum_impl!(CpInfo, CpInfo::String, CpInfoString);
+try_from_enum_impl!(CpInfo, CpInfo::Integer, CpInfoInteger);
+try_from_enum_impl!(CpInfo, CpInfo::Float, CpInfoFloat);
+try_from_enum_impl!(CpInfo, CpInfo::Long, CpInfoLong);
+try_from_enum_impl!(CpInfo, CpInfo::Double, CpInfoDouble);
+try_from_enum_impl!(CpInfo, CpInfo::NameAndType, CpInfoNameAndType);
+try_from_enum_impl!(CpInfo, CpInfo::Utf8, CpInfoUtf8);
+try_from_enum_impl!(CpInfo, CpInfo::MethodHandle, CpInfoMethodHandle);
+try_from_enum_impl!(CpInfo, CpInfo::MethodType, CpInfoMethodType);
+try_from_enum_impl!(CpInfo, CpInfo::InvokeDynamic, CpInfoInvokeDynamic);
+
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Class, ClassInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::FieldRef, FieldRefInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::MethodRef, MethodRefInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::InterfaceMethodRef, InterfaceMethodRefInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::String, StringInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Integer, IntegerInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Float, FloatInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Long, LongInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Double, DoubleInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::NameAndType, NameAndTypeInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::Utf8, Utf8Info);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::MethodHandle, MethodHandleInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::MethodType, MethodTypeInfo);
+try_from_enum_impl!(ConstantPoolElement, ConstantPoolElement::InvokeDynamic, InvokeDynamicInfo);
 
 #[derive(Clone, PartialEq)]
 pub struct ConstantPool(Vec<ConstantPoolElement>);
@@ -577,7 +585,7 @@ impl ConstantPool {
 			utf8: Utf8Info::from("Nope! This is the 0-index constant pool entry, you shouldn't be able to get this!")
 		}));
 		for i in &cp_info_vec.0 {
-			vec.push(i.unwrap(&cp_info_vec)?);
+			vec.push(i.pool(&cp_info_vec)?);
 		}
 		Ok(ConstantPool(vec))
 	}
@@ -607,7 +615,7 @@ impl ConstantPool {
 	/// Reads an [u16] and interprets it as an index into the constant pool. Doesn't try to convert the tag there.
 	pub fn parse_index_get<R: Read>(&self, reader: &mut R) -> Result<&ConstantPoolElement, ClassFileParseError> {
 		let index = parse_u2(reader)? as usize;
-		assert_ne!(index, 0);
+		assert_ne!(index, 0); // TODO: panic?
 		match self.0.get(index) {
 			Some(item) => Ok(item),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),
@@ -618,7 +626,7 @@ impl ConstantPool {
 	pub fn get<T: TryFrom<ConstantPoolElement>>(&self, index: usize) -> Result<T, ClassFileParseError>
 		where ClassFileParseError: From<<T as TryFrom<ConstantPoolElement>>::Error>
 	{
-		assert_ne!(index, 0);
+		assert_ne!(index, 0); // TODO: panic?
 		match self.0.get(index) {
 			Some(item) => Ok(T::try_from(item.clone())?),
 			None => Err(ClassFileParseError::NoSuchConstantPoolEntry(index)),

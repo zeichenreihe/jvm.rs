@@ -241,15 +241,15 @@ impl MethodInfo {
 		let code = if access_flags.is_native | access_flags.is_abstract {
 			if code.len() != 0 {
 				// ERR: found a code attribute when none was expected as of spec
-				panic!("Found code, when code wasn't expected {code:?}");
+				todo!("Found code, when code wasn't expected {code:?}");
 			}
 			None
 		} else {
 			if code.len() > 1 {
-				panic!("found multiple code attributes!");
+				todo!("found multiple code attributes!");
 			}
 			if code.len() == 0 {
-				panic!("found no code attribute");
+				todo!("found no code attribute");
 			}
 			Some(code.into_iter().next().unwrap())
 		};

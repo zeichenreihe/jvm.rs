@@ -2,7 +2,7 @@ use std::io::Read;
 use itertools::{Either, Itertools};
 use crate::classfile::{ClassInfo, ConstantPool, ConstantPoolElement, DoubleInfo, FloatInfo, IntegerInfo, LongInfo, MethodHandleInfo, MethodTypeInfo, NameAndTypeInfo, parse_u1, parse_u1_as_usize, parse_u2, parse_u2_as_usize, parse_u4, parse_u4_as_usize, parse_vec, StringInfo, Utf8Info};
 use crate::code::{Code, PcMap};
-use crate::errors::{ClassFileParseError, ConstantPoolTagMismatchError};
+use crate::errors::{AttributeTagMismatchError, ClassFileParseError, ConstantPoolTagMismatchError};
 
 fn check_attribute_length<R: Read>(reader: &mut R, length: u32) -> Result<(), ClassFileParseError> {
 	let len = parse_u4(reader)?;
@@ -34,11 +34,10 @@ impl ConstantValueAttribute {
 			ConstantPoolElement::Double(double) => Ok(ConstantValueAttribute::Double(double.clone())),
 			ConstantPoolElement::Integer(integer) => Ok(ConstantValueAttribute::Integer(integer.clone())),
 			ConstantPoolElement::String(string) => Ok(ConstantValueAttribute::String(string.clone())),
-			tag => Err(ClassFileParseError::InvalidConstantPoolTag(ConstantPoolTagMismatchError {
+			tag => Err(ConstantPoolTagMismatchError {
 				expected: "Long/Float/Double/Integer".to_string(),
 				actual: format!("{tag:?}"),
-				msg: "".to_string(),
-			})),
+			})?,
 		}
 	}
 }
@@ -51,9 +50,7 @@ pub struct CodeAttribute { // 4.7.3
 	pub exception_table: Vec<ExceptionTableEntry>,
 	pub attributes: Vec<AttributeInfo>,
 
-	pub line_number_table: Option<LineNumberTableAttribute>,
-	pub local_variable_table: Option<LocalVariableTableAttribute>,
-	pub local_variable_type_table: Option<LocalVariableTypeTableAttribute>,
+	pub line_number_table: Vec<LineNumberTableEntry>,
 	pub stack_map_table: StackMapTableAttribute,
 }
 
@@ -86,32 +83,11 @@ impl CodeAttribute {
 				AttributeInfo::LineNumberTable(line_number_table) => Either::Left(line_number_table),
 				other => Either::Right(other),
 			});
-		let line_number_table = match line_number_tables.into_iter().next() {
-			Some(line_number_table) => Some(line_number_table.map_pc(&code.pc_map)?),
-			None => None,
-		};
-
-		// LocalVariableTableAttribute
-		let (local_variable_tables, attributes): (Vec<LocalVariableTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
-			.partition_map(|attribute| match attribute {
-				AttributeInfo::LocalVariableTable(local_variable_table) => Either::Left(local_variable_table),
-				other => Either::Right(other),
-			});
-		let local_variable_table = match local_variable_tables.into_iter().next() {
-			Some(local_variable_table) => Some(local_variable_table.map_pc(&code.pc_map)?),
-			None => None,
-		};
-
-		// LocalVariableTypeTableAttribute
-		let (local_variable_type_tables, attributes): (Vec<LocalVariableTypeTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
-			.partition_map(|attribute| match attribute {
-				AttributeInfo::LocalVariableTypeTable(local_variable_type_table) => Either::Left(local_variable_type_table),
-				other => Either::Right(other),
-			});
-		let local_variable_type_table = match local_variable_type_tables.into_iter().next() {
-			Some(local_variable_type_table) => Some(local_variable_type_table.map_pc(&code.pc_map)?),
-			None => None
-		};
+		let line_number_table: Vec<LineNumberTableEntry> = line_number_tables.into_iter()
+			.map(|table| table.line_number_table)
+			.flatten()
+			.map(|entry| entry.map_pc(&code.pc_map))
+			.collect::<Result<_, _>>()?;
 
 		// StackMapTableAttribute
 		let (stack_map_tables, attributes): (Vec<StackMapTableAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
@@ -120,14 +96,13 @@ impl CodeAttribute {
 				other => Either::Right(other),
 			});
 
-		// ignore any, but the first StackMapTableAttribute
-		// TODO: there may be only one
-		let stack_map_table = stack_map_tables.into_iter()
-			.next()
-			.unwrap_or_else(|| StackMapTableAttribute {
-				entries: Vec::new(),
-			});
-		let stack_map_table = stack_map_table.map_pc(&code.pc_map)?;
+		let stack_map_table = match stack_map_tables.len() {
+			0 => StackMapTableAttribute { entries: Vec::new() },
+			1 => {
+				stack_map_tables.into_iter().next().unwrap()
+			}.map_pc(&code.pc_map)?,
+			_ => todo!("there may at max be one stack map frame!"),
+		};
 
 		Ok(CodeAttribute {
 			max_stack,
@@ -136,8 +111,6 @@ impl CodeAttribute {
 			exception_table,
 			attributes,
 			line_number_table,
-			local_variable_table,
-			local_variable_type_table,
 			stack_map_table,
 		})
 	}
@@ -594,12 +567,12 @@ impl SourceFileAttribute {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceDebugExtensionsAttribute { // 4.7.11
+pub struct SourceDebugExtensionAttribute { // 4.7.11
 	debug_extension: Vec<u8>,
 }
-impl SourceDebugExtensionsAttribute {
-	fn parse<R: Read>(reader: &mut R) -> Result<SourceDebugExtensionsAttribute, ClassFileParseError> {
-		Ok(SourceDebugExtensionsAttribute {
+impl SourceDebugExtensionAttribute {
+	fn parse<R: Read>(reader: &mut R) -> Result<SourceDebugExtensionAttribute, ClassFileParseError> {
+		Ok(SourceDebugExtensionAttribute {
 			debug_extension: parse_vec(reader,
 				parse_u4_as_usize,
 				parse_u1
@@ -633,7 +606,7 @@ impl LineNumberTableAttribute {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct LineNumberTableEntry { // 4.7.12, line_number_table
+pub struct LineNumberTableEntry { // 4.7.12, line_number_table
 	start_pc: usize,
 	line_number: u16,
 }
@@ -999,14 +972,51 @@ impl BootstrapMethodArgument {
 			ConstantPoolElement::Double(double) => Ok(Self::Double(double.clone())),
 			ConstantPoolElement::MethodHandle(method_handle) => Ok(Self::MethodHandle(method_handle.clone())),
 			ConstantPoolElement::MethodType(method_type) => Ok(Self::MethodType(method_type.clone())),
-			tag => Err(ClassFileParseError::InvalidConstantPoolTag(ConstantPoolTagMismatchError {
+			tag => Err(ClassFileParseError::ConstantPoolTagMismatchError(ConstantPoolTagMismatchError {
 				expected: "Long/Float/Double/Integer".to_string(),
 				actual: format!("{tag:?}"),
-				msg: "".to_string(),
 			})),
 		}
 	}
 }
+
+macro_rules! try_from_enum_impl {
+	($enum_type:ty, $pattern:path, $inner_type:ty) => {
+		impl TryFrom<$enum_type> for $inner_type {
+			type Error = AttributeTagMismatchError;
+			fn try_from(value: $enum_type) -> Result<Self, Self::Error> {
+				match value {
+					$pattern(value) => Ok(value),
+					v => Err(AttributeTagMismatchError {
+						expected: stringify!($pattern).to_string(),
+						actual: format!("{:?}", v),
+					}),
+				}
+			}
+		}
+	}
+}
+
+try_from_enum_impl!(AttributeInfo, AttributeInfo::ConstantValue, ConstantValueAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::Code, CodeAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::StackMapTable, StackMapTableAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::Exceptions, ExceptionsAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::InnerClasses, InnerClassesAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::EnclosingMethod, EnclosingMethodAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::Synthetic, SyntheticAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::Signature, SignatureAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::SourceFile, SourceFileAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::SourceDebugExtension, SourceDebugExtensionAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::LineNumberTable, LineNumberTableAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::LocalVariableTable, LocalVariableTableAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::LocalVariableTypeTable, LocalVariableTypeTableAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::Deprecated, DeprecatedAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::RuntimeVisibleAnnotations, RuntimeVisibleAnnotationsAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::RuntimeInvisibleAnnotations, RuntimeInvisibleAnnotationsAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::RuntimeVisibleParameterAnnotations, RuntimeVisibleParameterAnnotationsAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::RuntimeInvisibleParameterAnnotations, RuntimeInvisibleParameterAnnotationsAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::AnnotationDefault, AnnotationDefaultAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::BootstrapMethods, BootstrapMethodsAttribute);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttributeInfo { // 4.7
@@ -1019,7 +1029,7 @@ pub enum AttributeInfo { // 4.7
 	Synthetic(SyntheticAttribute), // 1.1, 45.3
 	Signature(SignatureAttribute), // 5.0, 49.0
 	SourceFile(SourceFileAttribute), // 1.0.2, 45.3
-	SourceDebugExtension(SourceDebugExtensionsAttribute), // 5.0, 49.0
+	SourceDebugExtension(SourceDebugExtensionAttribute), // 5.0, 49.0
 	LineNumberTable(LineNumberTableAttribute), // 1.0.2, 45.3
 	LocalVariableTable(LocalVariableTableAttribute), // 1.0.2, 45.3
 	LocalVariableTypeTable(LocalVariableTypeTableAttribute), // 5.0, 49.0
@@ -1031,44 +1041,42 @@ pub enum AttributeInfo { // 4.7
 	AnnotationDefault(AnnotationDefaultAttribute), // 5.0, 49.0
 	BootstrapMethods(BootstrapMethodsAttribute), // 7, 51.0
 	Unknown {
-		name: &'static str,
+		name: Utf8Info,
 		info: Vec<u8>,
 	},
 }
 
 impl AttributeInfo {
 	pub fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
-		let s: Utf8Info = constant_pool.parse_index(reader)?;
-
-		Ok(match s.to_string().as_str() {
-			"ConstantValue" => Self::ConstantValue(ConstantValueAttribute::parse(reader, constant_pool)?),
-			"Code" => Self::Code(CodeAttribute::parse(reader, constant_pool)?),
-			"StackMapTable" => Self::StackMapTable(StackMapTableAttribute::parse(reader, constant_pool)?),
-			"Exceptions" => Self::Exceptions(ExceptionsAttribute::parse(reader, constant_pool)?),
-			"InnerClasses" => Self::InnerClasses(InnerClassesAttribute::parse(reader, constant_pool)?),
-			"EnclosingMethod" => Self::EnclosingMethod(EnclosingMethodAttribute::parse(reader, constant_pool)?),
-			"Synthetic" => Self::Synthetic(SyntheticAttribute::parse(reader)?),
-			"Signature" => Self::Signature(SignatureAttribute::parse(reader, constant_pool)?),
-			"SourceFile" => Self::SourceFile(SourceFileAttribute::parse(reader, constant_pool)?),
-			"SourceDebugExtension" => Self::SourceDebugExtension(SourceDebugExtensionsAttribute::parse(reader)?),
-			"LineNumberTable" => Self::LineNumberTable(LineNumberTableAttribute::parse(reader)?),
-			"LocalVariableTable" => Self::LocalVariableTable(LocalVariableTableAttribute::parse(reader, constant_pool)?),
-			"LocalVariableTypeTable" => Self::LocalVariableTypeTable(LocalVariableTypeTableAttribute::parse(reader, constant_pool)?),
-			"Deprecated" => Self::Deprecated(DeprecatedAttribute::parse(reader)?),
-			"RuntimeVisibleAnnotations" => Self::RuntimeVisibleAnnotations(RuntimeVisibleAnnotationsAttribute::parse(reader, constant_pool)?),
-			"RuntimeInvisibleAnnotations" => Self::RuntimeInvisibleAnnotations(RuntimeInvisibleAnnotationsAttribute::parse(reader, constant_pool)?),
-			"RuntimeVisibleParameterAnnotations" => Self::RuntimeVisibleParameterAnnotations(RuntimeVisibleParameterAnnotationsAttribute::parse(reader, constant_pool)?),
-			"RuntimeInvisibleParameterAnnotations" => Self::RuntimeInvisibleParameterAnnotations(RuntimeInvisibleParameterAnnotationsAttribute::parse(reader, constant_pool)?),
-			"AnnotationDefault" => Self::AnnotationDefault(AnnotationDefaultAttribute::parse(reader, constant_pool)?),
-			"BootstrapMethods" => Self::BootstrapMethods(BootstrapMethodsAttribute::parse(reader, constant_pool)?),
-			name => {
+		let name: Utf8Info = constant_pool.parse_index(reader)?;
+		Ok(match name.bytes.as_slice() {
+			b"ConstantValue" => Self::ConstantValue(ConstantValueAttribute::parse(reader, constant_pool)?),
+			b"Code" => Self::Code(CodeAttribute::parse(reader, constant_pool)?),
+			b"StackMapTable" => Self::StackMapTable(StackMapTableAttribute::parse(reader, constant_pool)?),
+			b"Exceptions" => Self::Exceptions(ExceptionsAttribute::parse(reader, constant_pool)?),
+			b"InnerClasses" => Self::InnerClasses(InnerClassesAttribute::parse(reader, constant_pool)?),
+			b"EnclosingMethod" => Self::EnclosingMethod(EnclosingMethodAttribute::parse(reader, constant_pool)?),
+			b"Synthetic" => Self::Synthetic(SyntheticAttribute::parse(reader)?),
+			b"Signature" => Self::Signature(SignatureAttribute::parse(reader, constant_pool)?),
+			b"SourceFile" => Self::SourceFile(SourceFileAttribute::parse(reader, constant_pool)?),
+			b"SourceDebugExtension" => Self::SourceDebugExtension(SourceDebugExtensionAttribute::parse(reader)?),
+			b"LineNumberTable" => Self::LineNumberTable(LineNumberTableAttribute::parse(reader)?),
+			b"LocalVariableTable" => Self::LocalVariableTable(LocalVariableTableAttribute::parse(reader, constant_pool)?),
+			b"LocalVariableTypeTable" => Self::LocalVariableTypeTable(LocalVariableTypeTableAttribute::parse(reader, constant_pool)?),
+			b"Deprecated" => Self::Deprecated(DeprecatedAttribute::parse(reader)?),
+			b"RuntimeVisibleAnnotations" => Self::RuntimeVisibleAnnotations(RuntimeVisibleAnnotationsAttribute::parse(reader, constant_pool)?),
+			b"RuntimeInvisibleAnnotations" => Self::RuntimeInvisibleAnnotations(RuntimeInvisibleAnnotationsAttribute::parse(reader, constant_pool)?),
+			b"RuntimeVisibleParameterAnnotations" => Self::RuntimeVisibleParameterAnnotations(RuntimeVisibleParameterAnnotationsAttribute::parse(reader, constant_pool)?),
+			b"RuntimeInvisibleParameterAnnotations" => Self::RuntimeInvisibleParameterAnnotations(RuntimeInvisibleParameterAnnotationsAttribute::parse(reader, constant_pool)?),
+			b"AnnotationDefault" => Self::AnnotationDefault(AnnotationDefaultAttribute::parse(reader, constant_pool)?),
+			b"BootstrapMethods" => Self::BootstrapMethods(BootstrapMethodsAttribute::parse(reader, constant_pool)?),
+			_ => {
 				let info = parse_vec(reader,
 					parse_u4_as_usize,
 					parse_u1
 				)?;
-				eprintln!("WARN: unknown attr: {name}: {info:?}");
-				// TODO: let it actually store the name :iea:
-				Self::Unknown { name: "name", info }
+				eprintln!("WARN: unknown attr: {name}: {info:?}"); // TODO: print?
+				Self::Unknown { name, info }
 			},
 		})
 	}
