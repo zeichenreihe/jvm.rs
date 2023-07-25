@@ -160,6 +160,22 @@ impl ExceptionTableEntry {
 	}
 }
 
+/// The [StackMapTableAttribute] attribute is a variable-length attribute in the attributes table of a [CodeAttribute] attribute. This attribute is used during
+/// the process of verification by type checking (§4.10.1). A method's [CodeAttribute] attribute may have at most one [StackMapTableAttribute] attribute.
+///
+/// A [StackMapTableAttribute] attribute consists of zero or more stack map frames. Each stack map frame specifies (either explicitly or implicitly) a bytecode
+/// offset, the verification types (§4.10.1.2) for the local variables, and the verification types for the operand stack.
+///
+/// The type checker deals with and manipulates the expected types of a method's local variables and operand stack. Throughout this section, a location refers
+/// to either a single local variable or to a single operand stack entry.
+///
+/// We will use the terms stack map frame and type state interchangeably to describe a mapping from locations in the operand stack and local variables of a
+/// method to verification types. We will usually use the term stack map frame when such a mapping is provided in the class file, and the term type state when
+/// the mapping is used by the type checker.
+///
+/// In a class file whose version number is greater than or equal to 50.0, if a method's [CodeAttribute] attribute does not have a [StackMapTableAttribute]
+/// attribute, it has an implicit stack map attribute. This implicit stack map attribute is equivalent to a [StackMapTableAttribute] attribute with
+/// `number_of_entries` equal to zero.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StackMapTableAttribute { // 4.7.4
 	entries: Vec<StackMapFrame>,
@@ -167,25 +183,75 @@ pub struct StackMapTableAttribute { // 4.7.4
 impl StackMapTableAttribute {
 	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<StackMapTableAttribute, ClassFileParseError> {
 		let _attribute_length = parse_u4(reader)?;
+
+		let mut is_first_explicit_frame = true;
+		let mut last_bytecode_position = 0;
+		let count = parse_u2_as_usize(reader)?;
+		let mut entries = Vec::with_capacity(count);
+		for _ in 0..count {
+			let (frame, new_bytecode_position) = StackMapFrame::parse(reader, constant_pool, last_bytecode_position, is_first_explicit_frame)?;
+			entries.push(frame);
+			
+			is_first_explicit_frame = false;
+			last_bytecode_position = new_bytecode_position;
+		}
+
 		Ok(StackMapTableAttribute {
-			entries: parse_vec(reader,
-				parse_u2_as_usize,
-				|r| StackMapFrame::parse(r, constant_pool)
-			)?,
+			entries,
 		})
 	}
 
-	fn map_pc(self, pc_map: &PcMap) -> Result<StackMapTableAttribute, ClassFileParseError> {
-		Ok(self) // TODO: stack map frames lie. this is why
+	fn map_pc(mut self, pc_map: &PcMap) -> Result<StackMapTableAttribute, ClassFileParseError> {
+		Ok(StackMapTableAttribute {
+			entries: self.entries.into_iter()
+				.map(|frame| frame.map_pc(pc_map).unwrap()) // TODO: panic!
+				.collect(),
+		})
 	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerificationTypeInfo {
-	Top, Integer, Float, Long, Double, Null, UninitializedThis,
+	/// The [VerificationTypeInfo::Top] type indicates that the local variable has the verification type `top`.
+	Top,
+	/// The [VerificationTypeInfo::Integer] type indicates that the location contains the verification type `int`.
+	Integer,
+	/// The [VerificationTypeInfo::Float] type indicates that the location contains the verification type `float`.
+	Float,
+	/// The [VerificationTypeInfo::Long] type indicates that the location contains the verification type `long`.
+	/// This structure gives the contents of two locations in the operand stack or in the local variable array.
+	///
+	/// If the location is a local variable, then:
+	/// - It must not be the local variable with the highest index.
+	/// - The next higher numbered local variable contains the verification type `top`.
+	///
+	/// If the location is an operand stack entry, then:
+	/// - The current location must not be the topmost location of the operand stack.
+	/// - The next location closer to the top of the operand stack contains the verification type `top`.
+	Long,
+	/// The [VerificationTypeInfo::Double] type indicates that the location contains the verification type `double`.
+	/// This structure gives the contents of two locations in the operand stack or in the local variable array.
+	///
+	/// If the location is a local variable, then:
+	/// - It must not be the local variable with the highest index.
+	/// - The next higher numbered local variable contains the verification type `top`.
+	///
+	/// If the location is an operand stack entry, then:
+	/// - The current location must not be the topmost location of the operand stack.
+	/// - The next location closer to the top of the operand stack contains the verification type `top`.
+	Double,
+	/// The [VerificationTypeInfo::Null] type indicates that location contains the verification type `null`.
+	Null,
+	/// The [VerificationTypeInfo::UninitializedThis] type indicates that the location contains the verification type `uninitializedThis`.
+	UninitializedThis,
+	/// The [VerificationTypeInfo::Object] type indicates that the location contains an instance of the class represented by the [ClassInfo] structure found in
+	/// the [ConstantPool] table at the index given by `cpool_index`.
 	Object(ClassInfo),
+	/// The [VerificationTypeInfo::Uninitialized] type indicates that the location contains the verification type `uninitialized(offset)`.
 	Uninitialized {
-		offset: u16,
+		///  The `bytecode_offset` item indicates the offset, in the code array of the [CodeAttribute] that contains this [StackMapTableAttribute], of the
+		/// [Opcode::New] instruction that created the object being stored in the location.
+		bytecode_offset: usize,
 	},
 }
 
@@ -201,80 +267,226 @@ impl VerificationTypeInfo {
 			6 => Ok(Self::UninitializedThis),
 			7 => Ok(Self::Object(constant_pool.parse_index(reader)?)),
 			8 => Ok(Self::Uninitialized {
-				offset: parse_u2(reader)?,
+				bytecode_offset: parse_u2_as_usize(reader)?,
 			}),
 			tag => Err(ClassFileParseError::UnknownVerificationTypeInfoTag(tag)),
 		}
 	}
+
+	fn map_pc(mut self, pc_map: &PcMap) -> Result<VerificationTypeInfo, ClassFileParseError> {
+		Ok(match self {
+			Self::Uninitialized { bytecode_offset } => Self::Uninitialized {
+				bytecode_offset: pc_map.map(bytecode_offset)?
+			},
+			verification_type_info => verification_type_info,
+		})
+	}
 }
 
+/// Each [StackMapFrame] structure specifies the type state at a particular bytecode offset. Each frame type specifies (explicitly or implicitly) a value,
+/// `offset_delta`, that is used to calculate the actual bytecode offset at which a frame applies. The bytecode offset at which a frame applies is calculated
+/// by adding `offset_delta + 1` to the bytecode offset of the previous frame, unless the previous frame is the initial frame of the method, in which case the
+/// bytecode offset is `offset_delta`.
+///
+/// By using an offset delta rather than the actual bytecode offset we ensure, by definition, that stack map frames are in the correctly sorted order.
+/// Furthermore, by consistently using the formula `offset_delta + 1` for all explicit frames, we guarantee the absence of duplicates.
+///
+/// We say that an instruction in the bytecode has a corresponding stack map frame if the instruction starts at offset `i` in the code array of a
+/// [CodeAttribute] attribute, and the [CodeAttribute] attribute has a [StackMapTableAttribute] attribute whose entries array has a [StackMapFrame] structure
+/// that applies at bytecode offset `i`.
+///
+/// The [StackMapFrame] structure consists of a one-byte tag followed by zero or more bytes, giving more information, depending upon the tag.
+///
+/// All frame types, even [StackMapFrame::Full], rely on the previous frame for some of their semantics. This raises the question of what is the very first
+/// frame? The initial frame is implicit, and computed from the method descriptor.
+///
+/// Tags in the range `128..=246` are reserved for future use.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StackMapFrame {
+	/// If the frame type is [StackMapFrame::Same], it means the frame has exactly the same locals as the previous stack map frame and that the number of
+	/// stack items is zero.
 	Same {
-		offset_delta: u16,
+		bytecode_offset: usize,
 	},
+	/// If the `frame_type` is [StackMapFrame::SameLocals1StackItem], it means the frame has exactly the same locals as the previous stack map frame and that the
+	/// number of stack items is 1. There is a [VerificationTypeInfo] following the `frame_type` for the one stack item.
 	SameLocals1StackItem {
-		offset_delta: u16,
+		bytecode_offset: usize,
 		stack: VerificationTypeInfo,
 	},
+	/// If the `frame_type` is [StackMapFrame::Chop], it means that the operand stack is empty and the current locals are the same as the locals in the
+	/// previous frame, except that the `k` last locals are absent. The value of `k` is given by the formula `251 - frame_type`.
 	Chop {
-		offset_delta: u16,
+		bytecode_offset: usize,
 		k: u8,
 	},
+	/// If the `frame_type` is [StackMapFrame::Append], it means that the operand stack is empty and the current locals are the same as the locals in the
+	/// previous frame, except that `k` additional locals are defined. The value of `k` is given by the formula `frame_type - 251`.
+	///
+	/// The 0th entry in locals represents the type of the first additional local variable. If `locals[M]` represents local variable `N`, then `locals[M+1]`
+	/// represents local variable `N+1` if `locals[M]` is one of:
+	/// - [VerificationTypeInfo::Top]
+	/// - [VerificationTypeInfo::Integer]
+	/// - [VerificationTypeInfo::Float]
+	/// - [VerificationTypeInfo::Null]
+	/// - [VerificationTypeInfo::UninitializedThis]
+	/// - [VerificationTypeInfo::Object]
+	/// - [VerificationTypeInfo::Uninitialized]
+	/// Otherwise `locals[M+1]` represents local variable `N+2`.
+	///
+	/// It is an error if, for any index `i`, `locals[i]` represents a local variable whose index is greater than the maximum number of local variables for the
+	/// method.
 	Append {
-		offset_delta: u16,
+		bytecode_offset: usize,
 		locals: Vec<VerificationTypeInfo>,
 	},
+	/// The 0th entry in locals represents the type of local variable 0. `If locals[M]` represents local variable `N`, then `locals[M+1]` represents local
+	/// variable `N+1` if `locals[M]` is one of:
+	/// - [VerificationTypeInfo::Top]
+	/// - [VerificationTypeInfo::Integer]
+	/// - [VerificationTypeInfo::Float]
+	/// - [VerificationTypeInfo::Null]
+	/// - [VerificationTypeInfo::UninitializedThis]
+	/// - [VerificationTypeInfo::Object]
+	/// - [VerificationTypeInfo::Uninitialized]
+	/// Otherwise `locals[M+1]` represents local variable `N+2`.
+	///
+	/// It is an error if, for any index `i`, `locals[i]` represents a local variable whose index is greater than the maximum number of local variables for the
+	/// method.
+	///
+	/// The 0th entry in stack represents the type of the bottom of the stack, and subsequent entries represent types of stack elements closer to the top of
+	/// the operand stack. We shall refer to the bottom element of the stack as stack element 0, and to subsequent elements as stack element 1, 2 etc.
+	/// If `stack[M]` represents stack element `N`, then `stack[M+1]` represents stack element `N+1` if `stack[M]` is one of:
+	/// - [VerificationTypeInfo::Top]
+	/// - [VerificationTypeInfo::Integer]
+	/// - [VerificationTypeInfo::Float]
+	/// - [VerificationTypeInfo::Null]
+	/// - [VerificationTypeInfo::UninitializedThis]
+	/// - [VerificationTypeInfo::Object]
+	/// - [VerificationTypeInfo::Uninitialized]
+	/// Otherwise, `stack[M+1]` represents stack element `N+2`.
+	///
+	/// It is an error if, for any index `i`, `stack[i]` represents a stack entry whose index is greater than the maximum operand stack size for the method.
 	Full {
-		offset_delta: u16,
+		bytecode_offset: usize,
 		locals: Vec<VerificationTypeInfo>,
 		stack: Vec<VerificationTypeInfo>,
 	}
 }
 
 impl StackMapFrame {
-	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<StackMapFrame, ClassFileParseError> {
+	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool, last_bytecode_position: usize, is_first_explicit_frame: bool) ->
+			Result<(StackMapFrame, usize), ClassFileParseError> {
 		let frame_type = parse_u1(reader)?;
+		
+		let delta_to_position = |offset_delta| if is_first_explicit_frame {
+			last_bytecode_position + offset_delta
+		} else {
+			last_bytecode_position + offset_delta + 1
+		};
 
 		match frame_type {
-			offset_delta @ 0..=63 => Ok(Self::Same {
-				offset_delta: offset_delta as u16,
-			}),
-			frame_type @ 64..=127 => Ok(Self::SameLocals1StackItem {
-				offset_delta: frame_type as u16 - 64,
-				stack: VerificationTypeInfo::parse(reader, constant_pool)?,
-			}),
+			offset_delta @ 0..=63 => {
+				let bytecode_offset = delta_to_position(offset_delta as usize);
+				Ok((Self::Same { bytecode_offset }, bytecode_offset))
+			},
+			frame_type @ 64..=127 => {
+				let bytecode_offset = delta_to_position(frame_type as usize - 64);
+				Ok((
+					Self::SameLocals1StackItem {
+						bytecode_offset,
+						stack: VerificationTypeInfo::parse(reader, constant_pool)?,
+					},
+					bytecode_offset
+				))
+			},
 			128..=246 => Err(ClassFileParseError::UnknownStackMapFrameType(frame_type)),
-			247 => Ok(Self::SameLocals1StackItem {
-				offset_delta: parse_u2(reader)?,
-				stack: VerificationTypeInfo::parse(reader, constant_pool)?,
-			}),
-			frame_type @ 248..=250 => Ok(Self::Chop {
-				offset_delta: parse_u2(reader)?,
-				k: 251 - frame_type,
-			}),
-			251 => Ok(Self::Same {
-				offset_delta: parse_u2(reader)?,
-			}),
-			frame_type @ 252..=254 => Ok(Self::Append {
-				offset_delta: parse_u2(reader)?,
-				locals: parse_vec(reader,
-					|_| Ok::<usize, ClassFileParseError>((frame_type - 251) as usize),
-					|r| VerificationTypeInfo::parse(r, constant_pool)
-				)?,
-			}),
-			255 => Ok(Self::Full {
-				offset_delta: parse_u2(reader)?,
-				locals: parse_vec(reader,
-					parse_u2_as_usize,
-					|r| VerificationTypeInfo::parse(r, constant_pool)
-				)?,
-				stack: parse_vec(reader,
-					parse_u2_as_usize,
-					|r| VerificationTypeInfo::parse(r, constant_pool)
-				)?,
-			}),
+			247 => {
+				let bytecode_offset = delta_to_position(parse_u2_as_usize(reader)?);
+				Ok((
+					Self::SameLocals1StackItem {
+						bytecode_offset,
+						stack: VerificationTypeInfo::parse(reader, constant_pool)?,
+					},
+					bytecode_offset
+				))
+			},
+			frame_type @ 248..=250 => {
+				let bytecode_offset = delta_to_position(parse_u2_as_usize(reader)?);
+				Ok((
+					Self::Chop {
+						bytecode_offset,
+						k: 251 - frame_type,
+					},
+					bytecode_offset
+				))
+			},
+			251 => {
+				let bytecode_offset = delta_to_position(parse_u2_as_usize(reader)?);
+				Ok((Self::Same { bytecode_offset }, bytecode_offset))
+			},
+			frame_type @ 252..=254 => {
+				let bytecode_offset = delta_to_position(parse_u2_as_usize(reader)?);
+				Ok((
+					Self::Append {
+						bytecode_offset,
+						locals: parse_vec(reader,
+							|_| Ok::<usize, ClassFileParseError>((frame_type - 251) as usize),
+							|r| VerificationTypeInfo::parse(r, constant_pool)
+						)?,
+					},
+					bytecode_offset
+				))
+			},
+			255 => {
+				let bytecode_offset = delta_to_position(parse_u2_as_usize(reader)?);
+				Ok((
+					Self::Full {
+						bytecode_offset,
+						locals: parse_vec(reader,
+							parse_u2_as_usize,
+								|r| VerificationTypeInfo::parse(r, constant_pool)
+						)?,
+						stack: parse_vec(reader,
+							parse_u2_as_usize,
+							|r| VerificationTypeInfo::parse(r, constant_pool)
+						)?,
+					},
+					bytecode_offset
+				))
+			},
 		}
+	}
+
+	fn map_pc(mut self, pc_map: &PcMap) -> Result<StackMapFrame, ClassFileParseError> {
+		Ok(match self {
+			Self::Same { bytecode_offset } => Self::Same {
+				bytecode_offset: pc_map.map(bytecode_offset)?,
+			},
+			Self::SameLocals1StackItem { bytecode_offset, stack } => Self::SameLocals1StackItem {
+				bytecode_offset: pc_map.map(bytecode_offset)?,
+				stack: stack.map_pc(pc_map)?,
+			},
+			Self::Chop { bytecode_offset, k } => Self::Chop {
+				bytecode_offset: pc_map.map(bytecode_offset)?,
+				k,
+			},
+			Self::Append { bytecode_offset, locals } => Self::Append {
+				bytecode_offset: pc_map.map(bytecode_offset)?,
+				locals: locals.into_iter()
+					.map(|verification_type_info| verification_type_info.map_pc(pc_map).unwrap()) // TODO: panic!
+					.collect(),
+			},
+			Self::Full { bytecode_offset, locals, stack } => Self::Full {
+				bytecode_offset: pc_map.map(bytecode_offset)?,
+				locals: locals.into_iter()
+					.map(|verification_type_info| verification_type_info.map_pc(pc_map).unwrap()) // TODO: panic!
+					.collect(),
+				stack: stack.into_iter()
+					.map(|verification_type_info| verification_type_info.map_pc(pc_map).unwrap()) // TODO: panic!
+					.collect(),
+			}
+		})
 	}
 }
 
