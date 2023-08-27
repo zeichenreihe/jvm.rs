@@ -980,6 +980,58 @@ impl BootstrapMethodArgument {
 	}
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodParametersAttribute {
+	parameters: Vec<MethodParameterEntry>,
+}
+
+impl MethodParametersAttribute {
+	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<MethodParametersAttribute, ClassFileParseError> {
+		let _attribute_length = parse_u4(reader)?;
+		Ok(MethodParametersAttribute {
+			parameters: parse_vec(reader,
+				parse_u1_as_usize,
+				|r| MethodParameterEntry::parse(r, constant_pool)
+			)?,
+		})
+	}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodParameterEntry {
+	name: Option<Utf8Info>,
+	access_flags: MethodParameterAccessFlags,
+}
+
+impl MethodParameterEntry {
+	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<MethodParameterEntry, ClassFileParseError> {
+		Ok(MethodParameterEntry {
+			name: constant_pool.parse_index_optional(reader)?,
+			access_flags: MethodParameterAccessFlags::parse(parse_u2(reader)?)?,
+		})
+	}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodParameterAccessFlags {
+	pub is_final: bool,
+	pub is_synthetic: bool,
+	pub is_mandated: bool,
+}
+
+impl MethodParameterAccessFlags {
+	fn parse(access_flags: u16) -> Result<MethodParameterAccessFlags, ClassFileParseError> {
+		let is_final     = access_flags & 0x0010 != 0;
+		let is_synthetic = access_flags & 0x1000 != 0;
+		let is_mandated  = access_flags & 0x8000 != 0;
+		// other bits are reserved for future use
+
+		Ok(MethodParameterAccessFlags {
+			is_final, is_synthetic, is_mandated,
+		})
+	}
+}
+
 macro_rules! try_from_enum_impl {
 	($enum_type:ty, $pattern:path, $inner_type:ty) => {
 		impl TryFrom<$enum_type> for $inner_type {
@@ -1017,6 +1069,7 @@ try_from_enum_impl!(AttributeInfo, AttributeInfo::RuntimeVisibleParameterAnnotat
 try_from_enum_impl!(AttributeInfo, AttributeInfo::RuntimeInvisibleParameterAnnotations, RuntimeInvisibleParameterAnnotationsAttribute);
 try_from_enum_impl!(AttributeInfo, AttributeInfo::AnnotationDefault, AnnotationDefaultAttribute);
 try_from_enum_impl!(AttributeInfo, AttributeInfo::BootstrapMethods, BootstrapMethodsAttribute);
+try_from_enum_impl!(AttributeInfo, AttributeInfo::MethodParameters, MethodParametersAttribute);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttributeInfo { // 4.7
@@ -1040,6 +1093,7 @@ pub enum AttributeInfo { // 4.7
 	RuntimeInvisibleParameterAnnotations(RuntimeInvisibleParameterAnnotationsAttribute), // 5.0, 49.0
 	AnnotationDefault(AnnotationDefaultAttribute), // 5.0, 49.0
 	BootstrapMethods(BootstrapMethodsAttribute), // 7, 51.0
+    MethodParameters(MethodParametersAttribute), // 8, 52.0
 	Unknown {
 		name: Utf8Info,
 		info: Vec<u8>,
@@ -1070,6 +1124,7 @@ impl AttributeInfo {
 			b"RuntimeInvisibleParameterAnnotations" => Self::RuntimeInvisibleParameterAnnotations(RuntimeInvisibleParameterAnnotationsAttribute::parse(reader, constant_pool)?),
 			b"AnnotationDefault" => Self::AnnotationDefault(AnnotationDefaultAttribute::parse(reader, constant_pool)?),
 			b"BootstrapMethods" => Self::BootstrapMethods(BootstrapMethodsAttribute::parse(reader, constant_pool)?),
+			b"MethodParameters" => Self::MethodParameters(MethodParametersAttribute::parse(reader, constant_pool)?),
 			_ => {
 				let info = parse_vec(reader,
 					parse_u4_as_usize,
