@@ -7,8 +7,12 @@ use crate::errors::ClassFileParseError;
 mod attribute;
 pub use attribute::*;
 
+mod verifier;
+
 mod constant_pool;
 pub use constant_pool::*;
+
+pub mod instruction;
 
 macro_rules! gen_parse_u_int {
 	($name:tt, $usize_parse_name:tt, $n:literal, $t:ty) => {
@@ -288,6 +292,12 @@ impl ClassFile {
 		let minor_version = parse_u2(reader)?;
 		let major_version = parse_u2(reader)?;
 
+		if major_version <= 51 {
+			return Err(ClassFileParseError::WrongVersion {
+				major: major_version, minor: minor_version,
+			});
+		}
+
 		let constant_pool = ConstantPool::parse(reader)?;
 
 		let access_flags = parse_u2(reader)?;
@@ -316,6 +326,11 @@ impl ClassFile {
 			parse_u2_as_usize,
 		   |r| AttributeInfo::parse(r, &constant_pool)
 		)?;
+
+		let mut end = [0u8];
+		if reader.read(&mut end)? != 0 {
+			return Err(ClassFileParseError::IllegalInstruction("Contains bytes after class file."));
+		}
 
 		Ok(ClassFile { minor_version, major_version, constant_pool, access_flags, this_class, super_class, interfaces, fields, methods, attributes })
 	}
