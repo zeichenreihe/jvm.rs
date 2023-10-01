@@ -1,6 +1,4 @@
-// this handles chapter 4.10 of the JVMS 8
-
-use std::io::BufRead;
+use itertools::Itertools;
 use crate::classfile::instruction::{LvIndex, Opcode};
 use crate::classfile::MethodInfoAccess as MethodAccessFlags;
 
@@ -35,19 +33,19 @@ struct Class;
 struct ClassName;
 
 impl From<&str> for ClassName {
-	fn from(value: &str) -> Self {
+	fn from(_value: &str) -> Self {
 		todo!()
 	}
 }
 
 impl PartialEq<str> for ClassName {
-	fn eq(&self, other: &str) -> bool {
+	fn eq(&self, _other: &str) -> bool {
 		todo!()
 	}
 }
 
 impl PartialEq<&str> for ClassName {
-	fn eq(&self, other: &&str) -> bool {
+	fn eq(&self, _other: &&str) -> bool {
 		todo!()
 	}
 }
@@ -61,14 +59,13 @@ struct MethodName;
 
 
 impl PartialEq<&str> for MethodName {
-	fn eq(&self, other: &&str) -> bool {
+	fn eq(&self, _other: &&str) -> bool {
 		todo!()
 	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MethodDescriptor;
-
 
 const JAVA_LANG_OBJECT: &str = "java/lang/Object";
 const JAVA_LANG_THROWABLE: &str = "java/lang/Throwable";
@@ -82,69 +79,50 @@ fn get_bootstrap_loader() -> Result<Loader> {
 // Iff the predicate classIsTypeSafe is not true, the type checker must throw the exception VerifyError to indicate that the class file is malformed.
 // Otherwise, the class file has type checked successfully and bytecode verification has completed successfully.
 
+// classIsTypeSafe(Class) :-
+//     classClassName(Class, Name),
+//     classDefiningLoader(Class, L),
+//     superclassChain(Name, L, Chain),
+//     Chain \= [],
+//     classSuperClassName(Class, SuperclassName),
+//     loadedClass(SuperclassName, L, Superclass),
+//     classIsNotFinal(Superclass),
+//     classMethods(Class, Methods),
+//     checklist(methodIsTypeSafe(Class), Methods).
+// classIsTypeSafe(Class) :-
+//     classClassName(Class, 'java/lang/Object'),
+//     classDefiningLoader(Class, L),
+//     isBootstrapLoader(L),
+//     classMethods(Class, Methods),
+//     checklist(methodIsTypeSafe(Class), Methods).
 fn class_is_type_safe(class: &Class) -> Bool {
-	// classIsTypeSafe(Class) :-
-	//     classClassName(Class, Name),
-	//     classDefiningLoader(Class, L),
-	//     superclassChain(Name, L, Chain),
-	//     Chain \= [],
-	//     classSuperClassName(Class, SuperclassName),
-	//     loadedClass(SuperclassName, L, Superclass),
-	//     classIsNotFinal(Superclass),
-	//     classMethods(Class, Methods),
-	//     checklist(methodIsTypeSafe(Class), Methods).
-	let class_is_type_safe_0 = || -> Bool {
-		let name = class.class_name()?;
-		let l = class.defining_loader()?;
+	let name = class.class_name()?;
+	let l = class.defining_loader()?;
 
-		let chain = superclass_chain(&name, &l)?;
+	let chain = superclass_chain(&name, &l)?;
 
-		if chain.is_empty() {
-			fail("")?;
-		}
-
-		let superclass_name = class.super_class_name()?;
-		let superclass = loaded_class(&superclass_name, &l)?;
-
-		superclass.is_not_final()?;
-
-		let methods = class.methods()?;
-
-		for method in methods {
-			method_is_type_safe(class, &method)?;
-		}
-
-		Ok(())
-	};
-
-	// classIsTypeSafe(Class) :-
-	//     classClassName(Class, 'java/lang/Object'),
-	//     classDefiningLoader(Class, L),
-	//     isBootstrapLoader(L),
-	//     classMethods(Class, Methods),
-	//     checklist(methodIsTypeSafe(Class), Methods).
-	let class_is_type_safe_1 = |_| -> Bool {
-		(class.class_name()? == "java/lang/Object").fail("")?;
+	if chain.is_empty() { // is empty for java/lang/Object
+		(name == "java/lang/Object").fail("")?;
 
 		let l = class.defining_loader()?;
 
 		l.is_bootstrap_loader()?;
+	} else {
+		let superclass_name = class.super_class_name()?;
+		let superclass = loaded_class(&superclass_name, &l)?;
 
-		let methods = class.methods()?;
+		superclass.is_not_final()?;
+	}
 
-		for method in methods {
-			method_is_type_safe(class, &method)?;
-		}
+	for method in class.methods()? {
+		method_is_type_safe(class, &method)?;
+	}
 
-		Ok(())
-	};
-
-	class_is_type_safe_0()
-		.or_else(class_is_type_safe_1)
+	Ok(())
 }
 
-// We stipulate the existence of 28 Prolog predicates ("accessors") that have certain expected behavior but whose formal definitions are not given in this
-// specification.
+// We stipulate the existence of 28 Prolog predicates ("accessors") that have certain expected behavior but whose formal
+// definitions are not given in this specification.
 impl Class {
 	// classClassName(Class, ClassName)
 	//     Extracts the name, ClassName, of the class Class.
@@ -167,6 +145,7 @@ impl Class {
 	// classSuperClassName(Class, SuperClassName)
 	//     Extracts the name, SuperClassName, of the superclass of class Class.
 	fn super_class_name(&self) -> Result<ClassName> {
+		// only fails on java/lang/Object
 		todo!()
 	}
 
@@ -209,7 +188,7 @@ impl Loader {
 // loadedClass(Name, InitiatingLoader, ClassDefinition)
 //     True iff there exists a class named Name whose representation (in accordance with this specification) when loaded by the class loader InitiatingLoader
 //     is ClassDefinition.
-fn loaded_class(name: &ClassName, initiating_loader: &Loader) -> Result<Class> {
+fn loaded_class(_name: &ClassName, _initiating_loader: &Loader) -> Result<Class> {
 	todo!()
 }
 
@@ -252,56 +231,68 @@ impl Method {
 
 	// isNotFinal(Method, Class)
 	//     True iff Method in class Class is not final.
-	fn is_not_final(&self, class: &Class) -> Bool {
-		todo!()
+	#[deprecated]
+	fn is_not_final(&self, _class: &Class) -> Bool {
+		(!self.access_flags()?.is_final).fail("")
 	}
 
 	// defined in order to make it compile
-	fn is_final(&self, class: &Class) -> Bool {
-		todo!()
+	#[deprecated]
+	fn is_final(&self, _class: &Class) -> Bool {
+		self.access_flags()?.is_final.fail("")
 	}
 
 	// isStatic(Method, Class)
 	//     True iff Method in class Class is static.
-	fn is_static(&self, class: &Class) -> Bool {
-		todo!()
+	#[deprecated]
+	fn is_static(&self, _class: &Class) -> Bool {
+		self.access_flags()?.is_static.fail("")
 	}
 
 	// isNotStatic(Method, Class)
 	//     True iff Method in class Class is not static.
-	fn is_not_static(&self, class: &Class) -> Bool {
-		todo!()
+	#[deprecated]
+	fn is_not_static(&self, _class: &Class) -> Bool {
+		(!self.access_flags()?.is_static).fail("")
 	}
 
 	// isPrivate(Method, Class)
 	//     True iff Method in class Class is private.
-	fn is_private(&self, class: &Class) -> Bool {
-		todo!()
+	#[deprecated]
+	fn is_private(&self, _class: &Class) -> Bool {
+		self.access_flags()?.is_private.fail("")
 	}
 
 	// isNotPrivate(Method, Class)
 	//     True iff Method in class Class is not private.
-	fn is_not_private(&self, class: &Class) -> Bool {
-		todo!()
+	#[deprecated]
+	fn is_not_private(&self, _class: &Class) -> Bool {
+		(!self.access_flags()?.is_private).fail("")
 	}
 }
 
 // isProtected(MemberClass, MemberName, MemberDescriptor)
 //     True iff there is a member named MemberName with descriptor MemberDescriptor in the class MemberClass and it is protected.
+fn is_protected<A, B, C>(a: A, b: B, c: C) -> Bool {
+	todo!()
+}
 
 // isNotProtected(MemberClass, MemberName, MemberDescriptor)
 //     True iff there is a member named MemberName with descriptor MemberDescriptor in the class MemberClass and it is not protected.
+fn is_not_protected<A, B, C>(a: A, b: B, c: C) -> Bool {
+	todo!()
+}
 
 // parseFieldDescriptor(Descriptor, Type)
 //     Converts a field descriptor, Descriptor, into the corresponding verification type Type (§4.10.1.2).
-fn parse_field_descriptor<Descriptor>(descriptor: &Descriptor) -> Result<VerificationType> {
+fn parse_field_descriptor<Descriptor>(_descriptor: &Descriptor) -> Result<VerificationType> {
 	todo!()
 }
 
 // parseMethodDescriptor(Descriptor, ArgTypeList, ReturnType)
 //     Converts a method descriptor, Descriptor, into a list of verification types, ArgTypeList, corresponding to the method argument types, and a verification
 //     type, ReturnType, corresponding to the return type.
-fn parse_method_descriptor(descriptor: &MethodDescriptor) -> Result<(Vec<VerificationType>, VerificationType)> {
+fn parse_method_descriptor(_descriptor: MethodDescriptor) -> Result<(Vec<VerificationType>, VerificationType)> {
 	todo!()
 }
 
@@ -310,26 +301,28 @@ fn parse_method_descriptor(descriptor: &MethodDescriptor) -> Result<(Vec<Verific
 //     local variables, FrameSize, the exception handlers, Handlers, and the stack map StackMap.
 //
 //     The representation of the instruction stream and stack map attribute must be as specified in §4.10.1.3 and §4.10.1.4.
-fn parse_code_attribute(class: &Class, method: &Method) -> Result<(usize, usize, Vec<Instruction>, Vec<Handler>, Vec<Instruction>)> {
+fn parse_code_attribute(_class: &Class, _method: &Method) -> Result<(usize, usize, Vec<Instruction>, Vec<Handler>, Vec<Instruction>)> {
 
-	let frame_size = todo!();
-	let max_stack = todo!();
-	let parsed_code = todo!();
-	let handlers = todo!();
-	let stack_map = todo!();
+	let frame_size = 0;
+	let max_stack = 0;
+	let parsed_code = Vec::new();
+	let handlers = Vec::new();
+	let stack_map = Vec::new();
+
+	todo!();
 
 	Ok((frame_size, max_stack, parsed_code, handlers, stack_map))
 }
 
 // samePackageName(Class1, Class2)
 //     True iff the package names of Class1 and Class2 are the same.
-fn same_package_name(class1: &Class, class2: &Class) -> Bool {
+fn same_package_name(_class1: &Class, _class2: &Class) -> Bool {
 	todo!()
 }
 
 // differentPackageName(Class1, Class2)
 //     True iff the package names of Class1 and Class2 are different.
-fn different_package_name(class1: &Class, class2: &Class) -> Bool {
+fn different_package_name(_class1: &Class, _class2: &Class) -> Bool {
 	todo!()
 }
 
@@ -399,12 +392,12 @@ impl Environment {
 	//     allInstructions(Environment, Instructions),
 	//     member(stackMap(Offset, StackFrame), Instructions).
 	fn offset_stack_frame(&self, offset: usize) -> Result<&Frame> {
-		let instructions = self.all_instructions()?;
-
-		let stack_map = instructions.iter()
-			.find_map(|instruction| match instruction {
-				Instruction::StackMap(StackMap { type_state, .. }) => Some(type_state),
-				_ => None,
+		let stack_map = self.all_instructions()?.iter()
+			.find_map(|instruction| {
+				match instruction {
+					Instruction::StackMap(stack_map_offset, frame) if offset == *stack_map_offset => Some(frame),
+					_ => None,
+				}
 			});
 
 		match stack_map {
@@ -420,40 +413,11 @@ impl Environment {
 	}
 }
 
-// Finally, we specify a general predicate used throughout the type rules:
-
-// notMember(_, []).
-// notMember(X, [A | More]) :- X \= A, notMember(X, More).
-fn not_member<T: PartialEq>(x: &T, vec: &Vec<T>) -> Bool {
-	if vec.contains(x) {
-		Err(())
-	} else {
-		Ok(())
-	}
-}
-
-fn member<T: PartialEq>(x: &T, vec: &Vec<T>) -> Bool {
-	if vec.contains(x) {
-		Ok(())
-	} else {
-		Err(())
-	}
-}
-
 // 4.10.1.2
-// class(_, _)
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ClassNameAndLoader {
-	name: ClassName,
-	loader: Loader,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ArrayType {
-	Byte,
-	Boolean,
-	Char,
-	Short,
+	Byte, Boolean, Char, Short,
 	Other(Box<VerificationType>),
 }
 
@@ -770,8 +734,7 @@ impl VerificationType {
 		let is_java_subclass_of_0 = || {
 			match (from, to) {
 				(Class(x, xl), Class(y, yl)) => {
-					(x == y).fail("")?;
-					(xl == yl).fail("")
+					(x == y && xl == yl).fail("")
 				}
 				_ => fail(""),
 			}
@@ -788,9 +751,9 @@ impl VerificationType {
 					let chain = superclass_chain(subclass_name, l_sub)?;
 
 					let l = 'a: {
-						for i in chain {
-							if &i.name == superclass_name {
-								break 'a i.loader;
+						for (name, loader) in chain {
+							if &name == superclass_name {
+								break 'a loader;
 							}
 						}
 						return fail("");
@@ -832,41 +795,34 @@ impl VerificationType {
 	}
 }
 
-fn superclass_chain(class_name: &ClassName, l: &Loader) -> Result<Vec<ClassNameAndLoader>> {
-	// superclassChain(ClassName, L, [class(SuperclassName, Ls) | Rest]) :-
-	//     loadedClass(ClassName, L, Class),
-	//     classSuperClassName(Class, SuperclassName),
-	//     classDefiningLoader(Class, Ls),
-	//     superclassChain(SuperclassName, Ls, Rest).
-	let superclass_chain_0 = || -> Result<Vec<ClassNameAndLoader>> {
-		let class = loaded_class(class_name, l)?;
+fn superclass_chain(class_name: &ClassName, l: &Loader) -> Result<Vec<(ClassName, Loader)>> {
+	let class = loaded_class(class_name, l)?;
+	let ls = class.defining_loader()?;
+
+	if class_name == JAVA_LANG_OBJECT {
+		// superclassChain('java/lang/Object', L, []) :-
+		//     loadedClass('java/lang/Object', L, Class),
+		//     classDefiningLoader(Class, BL),
+		//     isBootstrapLoader(BL).
+		// reordering allowed since super_class_name fails on java/lang/Object
+
+		(class_name == JAVA_LANG_OBJECT).fail("")?;
+		ls.is_bootstrap_loader()?;
+		Ok(Vec::new())
+	} else {
+		// superclassChain(ClassName, L, [class(SuperclassName, Ls) | Rest]) :-
+		//     loadedClass(ClassName, L, Class),
+		//     classSuperClassName(Class, SuperclassName),
+		//     classDefiningLoader(Class, Ls),
+		//     superclassChain(SuperclassName, Ls, Rest).
 		let superclass_name = class.super_class_name()?;
-		let ls = class.defining_loader()?;
 
 		let mut rest = superclass_chain(&superclass_name, &ls)?;
 
-		rest.insert(0, ClassNameAndLoader {
-			name: superclass_name,
-			loader: ls,
-		});
+		rest.insert(0, (superclass_name, ls));
 
 		Ok(rest)
-	};
-
-	// superclassChain('java/lang/Object', L, []) :-
-	//     loadedClass('java/lang/Object', L, Class),
-	//     classDefiningLoader(Class, BL),
-	//     isBootstrapLoader(BL).
-	let superclass_chain_1 = |_| {
-		(class_name == JAVA_LANG_OBJECT).fail("")?;
-		let class = loaded_class(&JAVA_LANG_OBJECT.into(), l)?;
-		let bl = class.defining_loader()?;
-		bl.is_bootstrap_loader()?;
-		Ok(Vec::new())
-	};
-
-	superclass_chain_0()
-		.or_else(superclass_chain_1)
+	}
 }
 
 // 4.10.1.3
@@ -874,14 +830,9 @@ fn superclass_chain(class_name: &ClassName, l: &Loader) -> Result<Vec<ClassNameA
 // 4.10.1.4
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct StackMap {
-	offset: usize,
-	type_state: Frame,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 struct Frame {
 	locals: Vec<VerificationType>,
+	/// Note: things are stored in reverse, use `.pop()` to access the top element, `.push()` to add something.
 	operand_stack: Vec<VerificationType>,
 	/// `flags: Vec<Flag>,`
 	/// is a list which may either be empty or have the single element `flagThisUninit`. Represented here via one boolean field.
@@ -936,28 +887,28 @@ fn operand_stack_has_legal_length(environment: &Environment, operand_stack: &Vec
 	(length <= max_stack).fail("")
 }
 
-// nth1OperandStackIs(i, frame(_Locals, OperandStack, _Flags), Element) :-
-//     nth1(i, OperandStack, Element).
-fn nth1_operand_stack_is(_i: usize, _frame: &Frame) -> Result<VerificationType> {
-	todo!()
+impl Frame {
+	// nth1OperandStackIs(i, frame(_Locals, OperandStack, _Flags), Element) :-
+	//     nth1(i, OperandStack, Element).
+	fn nth1_operand_stack_is(&self, i: usize) -> Result<VerificationType> {
+		match self.operand_stack.get(i - 1) { // TODO: fix index, it's reversed by now
+			Some(x) => Ok(x.clone()),
+			None => fail(""),
+		}
+	}
+
+	// canPop(frame(Locals, OperandStack, Flags), Types,
+	//        frame(Locals, PoppedOperandStack, Flags)) :-
+	//     popMatchingList(OperandStack, Types, PoppedOperandStack).
+	fn can_pop<const N: usize>(self, types: [VerificationType; N]) -> Result<Frame> {
+		Ok(Self {
+			operand_stack: pop_matching_list(self.operand_stack, types)?,
+			..self
+		})
+	}
 }
 
-// canPop(frame(Locals, OperandStack, Flags), Types,
-//        frame(Locals, PoppedOperandStack, Flags)) :-
-//     popMatchingList(OperandStack, Types, PoppedOperandStack).
-fn can_pop(frame: &Frame, types: &Vec<VerificationType>) -> Result<Frame> {
-	let operand_stack = &frame.operand_stack;
-
-	let popped_operand_stack = pop_matching_list(operand_stack, types)?;
-
-	Ok(Frame {
-		locals: frame.locals.clone(),
-		operand_stack: popped_operand_stack,
-		flag_this_uninit: frame.flag_this_uninit,
-	})
-}
-
-fn head_rest<T: Clone>(vec: &Vec<T>) -> (Option<&T>, Vec<T>) {
+fn head_rest<T: Clone>(vec: &[T]) -> (Option<&T>, Vec<T>) {
 	if let Some((a, b)) = vec.split_first() {
 		(Some(a), b.to_vec())
 	} else {
@@ -969,16 +920,13 @@ fn head_rest<T: Clone>(vec: &Vec<T>) -> (Option<&T>, Vec<T>) {
 // popMatchingList(OperandStack, [P | Rest], NewOperandStack) :-
 //     popMatchingType(OperandStack, P, TempOperandStack, _ActualType),
 //     popMatchingList(TempOperandStack, Rest, NewOperandStack).
-fn pop_matching_list(operand_stack: &Vec<VerificationType>, types: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
-	if types.is_empty() {
-		return Ok(operand_stack.clone());
+fn pop_matching_list<const N: usize>(operand_stack: Vec<VerificationType>, types: [VerificationType; N]) -> Result<Vec<VerificationType>> {
+	let mut new_operand_stack = operand_stack.clone();
+
+	for p in types {
+		let (temp_operand_stack, _actual_type) = pop_matching_type(new_operand_stack, p)?;
+		new_operand_stack = temp_operand_stack;
 	}
-
-	let (p, rest) = head_rest(types);
-	let p = p.unwrap(); // cannot panic see check above
-
-	let (temp_operand_stack, _actual_type) = pop_matching_type(&operand_stack, p)?;
-	let new_operand_stack = pop_matching_list(&temp_operand_stack, &rest)?;
 
 	Ok(new_operand_stack)
 }
@@ -992,13 +940,31 @@ fn pop_matching_list(operand_stack: &Vec<VerificationType>, types: &Vec<Verifica
 //                 Type, OperandStack, ActualType) :-
 //     sizeOf(Type, 2),
 //     isAssignable(ActualType, Type).
-fn pop_matching_type(operand_stack: &Vec<VerificationType>, type_: &VerificationType) -> Result<(Vec<VerificationType>, VerificationType)> {
-	todo!()
+fn pop_matching_type(mut operand_stack: Vec<VerificationType>, type_: VerificationType) -> Result<(Vec<VerificationType>, VerificationType)> {
+	match operand_stack.pop() {
+		Some(VerificationType::Top) => {
+			match operand_stack.pop() {
+				Some(actual_type) if actual_type.size() == TypeSize::OneWord => {
+					VerificationType::is_assignable(&actual_type, &type_)?;
+
+					Ok((operand_stack, actual_type))
+				},
+				_ => fail(""),
+			}
+		},
+		Some(actual_type) if actual_type.size() == TypeSize::OneWord => {
+			VerificationType::is_assignable(&actual_type, &type_)?;
+
+			Ok((operand_stack, actual_type))
+		},
+		_ => fail("")
+	}
 }
 
 // sizeOf(X, 2) :- isAssignable(X, twoWord).
 // sizeOf(X, 1) :- isAssignable(X, oneWord).
 // sizeOf(top, 1).
+/// Use `.size() == TypeSize::OneWord` if possible!
 fn size_of(x: &VerificationType, size: usize) -> Bool {
 	match size {
 		2 => VerificationType::is_assignable(x, &VerificationType::TwoWord),
@@ -1008,19 +974,45 @@ fn size_of(x: &VerificationType, size: usize) -> Bool {
 	}
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TypeSize {
+	OneWord, TwoWord,
+}
+
+impl VerificationType {
+	fn size(&self) -> TypeSize {
+		if self == &VerificationType::Top || VerificationType::is_assignable(self, &VerificationType::OneWord).is_ok() {
+			TypeSize::OneWord
+		} else if VerificationType::is_assignable(self, &VerificationType::TwoWord).is_ok() {
+			TypeSize::TwoWord
+		} else {
+			unreachable!("this should never be reachable!")
+		}
+	}
+}
+
 // pushOperandStack(OperandStack, 'void', OperandStack).
 // pushOperandStack(OperandStack, Type, [Type | OperandStack]) :-
 //     sizeOf(Type, 1).
 // pushOperandStack(OperandStack, Type, [top, Type | OperandStack]) :-
 //     sizeOf(Type, 2).
-fn push_operand_stack(_operand_stack: &Vec<VerificationType>, _type_: &VerificationType) -> Result<Vec<VerificationType>> {
-	todo!()
+fn push_operand_stack(mut operand_stack: Vec<VerificationType>, type_: VerificationType) -> Result<Vec<VerificationType>> {
+	match type_.size() {
+		TypeSize::OneWord => {
+			operand_stack.push(type_);
+		},
+		TypeSize::TwoWord => {
+			operand_stack.push(type_);
+			operand_stack.push(VerificationType::Top);
+		},
+	}
+	Ok(operand_stack)
 }
 
 // canSafelyPush(Environment, InputOperandStack, Type, OutputOperandStack) :-
 //     pushOperandStack(InputOperandStack, Type, OutputOperandStack),
 //     operandStackHasLegalLength(Environment, OutputOperandStack).
-fn can_safely_push(environment: &Environment, input_operand_stack: &Vec<VerificationType>, type_: &VerificationType) -> Result<Vec<VerificationType>> {
+fn can_safely_push(environment: &Environment, input_operand_stack: Vec<VerificationType>, type_: VerificationType) -> Result<Vec<VerificationType>> {
 	let output_operand_stack = push_operand_stack(input_operand_stack, type_)?;
 	operand_stack_has_legal_length(environment, &output_operand_stack)?;
 	Ok(output_operand_stack)
@@ -1030,7 +1022,7 @@ fn can_safely_push(environment: &Environment, input_operand_stack: &Vec<Verifica
 //                   OutputOperandStack) :-
 //     canPushList(InputOperandStack, Types, OutputOperandStack),
 //     operandStackHasLegalLength(Environment, OutputOperandStack).
-fn can_safely_push_list(environment: &Environment, input_operand_stack: &Vec<VerificationType>, types: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
+fn can_safely_push_list<const N: usize>(environment: &Environment, input_operand_stack: Vec<VerificationType>, types: [VerificationType; N]) -> Result<Vec<VerificationType>> {
 	let output_operand_stack = can_push_list(input_operand_stack, types)?;
 	operand_stack_has_legal_length(environment, &output_operand_stack)?;
 	Ok(output_operand_stack)
@@ -1040,29 +1032,44 @@ fn can_safely_push_list(environment: &Environment, input_operand_stack: &Vec<Ver
 // canPushList(InputOperandStack, [Type | Rest], OutputOperandStack) :-
 //     pushOperandStack(InputOperandStack, Type, InterimOperandStack),
 //     canPushList(InterimOperandStack, Rest, OutputOperandStack).
-fn can_push_list(input_operand_stack: &Vec<VerificationType>, types: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
-	if types.is_empty() {
-		return Ok(input_operand_stack.clone())
+fn can_push_list<const N: usize>(mut operand_stack: Vec<VerificationType>, types: [VerificationType; N]) -> Result<Vec<VerificationType>> {
+	for type_ in types {
+		operand_stack = push_operand_stack(operand_stack, type_)?;
 	}
-
-	let (first, rest) = head_rest(types);
-	let first = first.unwrap(); // cannot panic see check above
-
-	let interim_operand_stack = push_operand_stack(input_operand_stack, first)?;
-	can_push_list(&interim_operand_stack, &rest)
+	Ok(operand_stack)
 }
 
 // popCategory1([Type | Rest], Type, Rest) :-
 //     Type \= top,
 //     sizeOf(Type, 1).
-fn pop_category_1() {
-	todo!()
+fn pop_category_1(mut stack: Vec<VerificationType>) -> Result<(VerificationType, Vec<VerificationType>)> {
+	if let Some(type_) = stack.pop() {
+		if type_ != VerificationType::Top && type_.size() == TypeSize::OneWord {
+			Ok((type_, stack))
+		} else {
+			fail("")
+		}
+	} else {
+		fail("")
+	}
 }
 
 // popCategory2([top, Type | Rest], Type, Rest) :-
 //     sizeOf(Type, 2).
-fn pop_category_2() {
-	todo!()
+fn pop_category_2(mut stack: Vec<VerificationType>) -> Result<(VerificationType, Vec<VerificationType>)> {
+	if let Some(VerificationType::Top) = stack.pop() {
+		if let Some(type_) = stack.pop() {
+			if type_.size() == TypeSize::TwoWord {
+				Ok((type_, stack))
+			} else {
+				fail("")
+			}
+		} else {
+			fail("")
+		}
+	} else {
+		fail("")
+	}
 }
 
 // validTypeTransition(Environment, ExpectedTypesOnStack, ResultType,
@@ -1072,60 +1079,44 @@ fn pop_category_2() {
 //                     InterimOperandStack),
 //     pushOperandStack(InterimOperandStack, ResultType, NextOperandStack),
 //     operandStackHasLegalLength(Environment, NextOperandStack).
-fn valid_type_transition(environment: &Environment, expected_types_on_stack: &Vec<VerificationType>, result_type: &VerificationType, frame: &Frame) -> Result<Frame> {
-	let interim_operand_stack = pop_matching_list(&frame.operand_stack, expected_types_on_stack)?;
-	let next_operand_stack = push_operand_stack(&interim_operand_stack, result_type)?;
+fn valid_type_transition<const N: usize>(environment: &Environment, expected_types_on_stack: [VerificationType; N], result_type: VerificationType, frame: Frame) -> Result<Frame> {
+	let interim_operand_stack = pop_matching_list(frame.operand_stack, expected_types_on_stack)?;
+	let next_operand_stack = push_operand_stack(interim_operand_stack, result_type)?;
 	operand_stack_has_legal_length(environment, &next_operand_stack)?;
 	Ok(Frame {
-		locals: frame.locals.clone(),
 		operand_stack: next_operand_stack,
-		flag_this_uninit: frame.flag_this_uninit,
+		..frame
 	})
 }
 
 // 4.10.1.5
 
 fn method_is_type_safe(class: &Class, method: &Method) -> Bool {
-	// methodIsTypeSafe(Class, Method) :-
-	//     doesNotOverrideFinalMethod(Class, Method),
-	//     methodAccessFlags(Method, AccessFlags),
-	//     member(abstract, AccessFlags).
-	let method_is_type_safe_0 = || {
-		does_not_override_final_method(class, method)?;
-		let access_flags = method.access_flags()?;
-		access_flags.is_abstract.fail("")
-	};
+	does_not_override_final_method(class, method)?;
+	let access_flags = method.access_flags()?;
 
-	// methodIsTypeSafe(Class, Method) :-
-	//     doesNotOverrideFinalMethod(Class, Method),
-	//     methodAccessFlags(Method, AccessFlags),
-	//     member(native, AccessFlags).
-	let method_is_type_safe_1 = |_| {
-		does_not_override_final_method(class, method)?;
-		let access_flags = method.access_flags()?;
-		access_flags.is_native.fail("")
-	};
-
-	// methodIsTypeSafe(Class, Method) :-
-	//     doesNotOverrideFinalMethod(Class, Method),
-	//     methodAccessFlags(Method, AccessFlags),
-	//     methodAttributes(Method, Attributes),
-	//     notMember(native, AccessFlags),
-	//     notMember(abstract, AccessFlags),
-	//     member(attribute('Code', _), Attributes),
-	//     methodWithCodeIsTypeSafe(Class, Method).
-	let method_is_type_safe_2 = |_| {
-		does_not_override_final_method(class, method)?;
-		let access_flags = method.access_flags()?;
-		(!access_flags.is_native).fail("")?;
-		(!access_flags.is_abstract).fail("")?;
+	if access_flags.is_abstract || access_flags.is_native {
+		// methodIsTypeSafe(Class, Method) :-
+		//     doesNotOverrideFinalMethod(Class, Method),
+		//     methodAccessFlags(Method, AccessFlags),
+		//     member(abstract, AccessFlags).
+		// methodIsTypeSafe(Class, Method) :-
+		//     doesNotOverrideFinalMethod(Class, Method),
+		//     methodAccessFlags(Method, AccessFlags),
+		//     member(native, AccessFlags).
+		Ok(())
+	} else {
+		// methodIsTypeSafe(Class, Method) :-
+		//     doesNotOverrideFinalMethod(Class, Method),
+		//     methodAccessFlags(Method, AccessFlags),
+		//     methodAttributes(Method, Attributes),
+		//     notMember(native, AccessFlags),
+		//     notMember(abstract, AccessFlags),
+		//     member(attribute('Code', _), Attributes),
+		//     methodWithCodeIsTypeSafe(Class, Method).
 		method.attributes_has_code()?;
 		method_with_code_is_type_safe(class, method)
-	};
-
-	method_is_type_safe_0()
-		.or_else(method_is_type_safe_1)
-		.or_else(method_is_type_safe_2)
+	}
 }
 
 fn does_not_override_final_method(class: &Class, method: &Method) -> Bool {
@@ -1135,32 +1126,26 @@ fn does_not_override_final_method(class: &Class, method: &Method) -> Bool {
 		todo!()
 	};
 
-	// doesNotOverrideFinalMethod(Class, Method) :-
-	//     isPrivate(Method, Class).
 	let does_not_override_final_method_1 = |_| {
-		method.is_private(class)
-	};
+		let access_flags = method.access_flags()?;
 
-	// doesNotOverrideFinalMethod(Class, Method) :-
-	//     isStatic(Method, Class).
-	let does_not_override_final_method_2 = |_| {
-		method.is_static(class)
-	};
-
-	// doesNotOverrideFinalMethod(Class, Method) :-
-	//     isNotPrivate(Method, Class),
-	//     isNotStatic(Method, Class),
-	//     doesNotOverrideFinalMethodOfSuperclass(Class, Method).
-	let does_not_override_final_method_3 = |_| {
-		method.is_not_private(class)?;
-		method.is_not_static(class)?;
-		does_not_override_final_method_of_superclass(class, method)
+		if access_flags.is_private || access_flags.is_static {
+			// doesNotOverrideFinalMethod(Class, Method) :-
+			//     isPrivate(Method, Class).
+			// doesNotOverrideFinalMethod(Class, Method) :-
+			//     isStatic(Method, Class).
+			Ok(())
+		} else {
+			// doesNotOverrideFinalMethod(Class, Method) :-
+			//     isNotPrivate(Method, Class),
+			//     isNotStatic(Method, Class),
+			//     doesNotOverrideFinalMethodOfSuperclass(Class, Method).
+			does_not_override_final_method_of_superclass(class, method)
+		}
 	};
 
 	does_not_override_final_method_0()
 		.or_else(does_not_override_final_method_1)
-		.or_else(does_not_override_final_method_2)
-		.or_else(does_not_override_final_method_3)
 }
 
 // doesNotOverrideFinalMethodOfSuperclass(Class, Method) :-
@@ -1178,117 +1163,73 @@ fn does_not_override_final_method_of_superclass(class: &Class, method: &Method) 
 }
 
 fn final_method_not_overridden(method: &Method, superclass: &Class, super_method_list: &Vec<Method>) -> Bool {
-	fn member(name: &MethodName, descriptor: &MethodDescriptor, vec: &Vec<Method>) -> Bool {
+	fn member(name: &MethodName, descriptor: &MethodDescriptor, vec: &Vec<Method>) -> Result<bool> {
 		for method in vec {
 			if &method.name()? == name && &method.descriptor()? == descriptor {
-				return Ok(());
+				return Ok(true);
 			}
 		}
-		fail("")
+		Ok(false)
 	}
-	fn not_member(name: &MethodName, descriptor: &MethodDescriptor, vec: &Vec<Method>) -> Bool {
-		for method in vec {
-			if &method.name()? == name && &method.descriptor()? == descriptor {
-				return fail("");
+
+	let name = method.name()?;
+	let descriptor = method.descriptor()?;
+
+	if member(&name, &descriptor, super_method_list)? {
+		let access_flags = method.access_flags()?;
+
+		if access_flags.is_final {
+			// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
+			//     methodName(Method, Name),
+			//     methodDescriptor(Method, Descriptor),
+			//     member(method(_, Name, Descriptor), SuperMethodList),
+			//     isFinal(Method, Superclass),
+			//     isPrivate(Method, Superclass).
+			// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
+			//     methodName(Method, Name),
+			//     methodDescriptor(Method, Descriptor),
+			//     member(method(_, Name, Descriptor), SuperMethodList),
+			//     isFinal(Method, Superclass),
+			//     isStatic(Method, Superclass).
+			if access_flags.is_private || access_flags.is_static {
+				Ok(())
+			} else {
+				fail("")
 			}
+		} else if access_flags.is_private || access_flags.is_static {
+			// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
+			//     methodName(Method, Name),
+			//     methodDescriptor(Method, Descriptor),
+			//     member(method(_, Name, Descriptor), SuperMethodList),
+			//     isNotFinal(Method, Superclass),
+			//     isPrivate(Method, Superclass),
+			//     doesNotOverrideFinalMethodOfSuperclass(Superclass, Method).
+			// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
+			//     methodName(Method, Name),
+			//     methodDescriptor(Method, Descriptor),
+			//     member(method(_, Name, Descriptor), SuperMethodList),
+			//     isNotFinal(Method, Superclass),
+			//     isStatic(Method, Superclass),
+			//     doesNotOverrideFinalMethodOfSuperclass(Superclass, Method).
+			does_not_override_final_method_of_superclass(superclass, method)
+		} else {
+			// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
+			//     methodName(Method, Name),
+			//     methodDescriptor(Method, Descriptor),
+			//     member(method(_, Name, Descriptor), SuperMethodList),
+			//     isNotFinal(Method, Superclass),
+			//     isNotStatic(Method, Superclass),
+			//     isNotPrivate(Method, Superclass).
+			Ok(())
 		}
-		Ok(())
+	} else {
+		// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
+		//     methodName(Method, Name),
+		//     methodDescriptor(Method, Descriptor),
+		//     notMember(method(_, Name, Descriptor), SuperMethodList),
+		//     doesNotOverrideFinalMethodOfSuperclass(Superclass, Method).
+		does_not_override_final_method_of_superclass(superclass, method)
 	}
-
-	// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
-	//     methodName(Method, Name),
-	//     methodDescriptor(Method, Descriptor),
-	//     member(method(_, Name, Descriptor), SuperMethodList),
-	//     isFinal(Method, Superclass),
-	//     isPrivate(Method, Superclass).
-	let final_method_not_overridden_0 = || {
-		let name = method.name()?;
-		let descriptor = method.descriptor()?;
-		member(&name, &descriptor, super_method_list)?;
-		method.is_final(superclass)?;
-		method.is_private(superclass)
-	};
-
-	// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
-	//     methodName(Method, Name),
-	//     methodDescriptor(Method, Descriptor),
-	//     member(method(_, Name, Descriptor), SuperMethodList),
-	//     isFinal(Method, Superclass),
-	//     isStatic(Method, Superclass).
-	let final_method_not_overridden_1 = |_| {
-		let name = method.name()?;
-		let descriptor = method.descriptor()?;
-		member(&name, &descriptor, super_method_list)?;
-		method.is_final(superclass)?;
-		method.is_static(superclass)
-	};
-
-	// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
-	//     methodName(Method, Name),
-	//     methodDescriptor(Method, Descriptor),
-	//     member(method(_, Name, Descriptor), SuperMethodList),
-	//     isNotFinal(Method, Superclass),
-	//     isPrivate(Method, Superclass),
-	//     doesNotOverrideFinalMethodOfSuperclass(Superclass, Method).
-	let final_method_not_overridden_2 = |_| {
-		let name = method.name()?;
-		let descriptor = method.descriptor()?;
-		member(&name, &descriptor, super_method_list)?;
-		method.is_not_final(superclass)?;
-		method.is_private(superclass)?;
-		does_not_override_final_method_of_superclass(superclass, method)
-	};
-
-	// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
-	//     methodName(Method, Name),
-	//     methodDescriptor(Method, Descriptor),
-	//     member(method(_, Name, Descriptor), SuperMethodList),
-	//     isNotFinal(Method, Superclass),
-	//     isStatic(Method, Superclass),
-	//     doesNotOverrideFinalMethodOfSuperclass(Superclass, Method).
-	let final_method_not_overridden_3 = |_| {
-		let name = method.name()?;
-		let descriptor = method.descriptor()?;
-		member(&name, &descriptor, super_method_list)?;
-		method.is_not_final(superclass)?;
-		method.is_static(superclass)?;
-		does_not_override_final_method_of_superclass(superclass, method)
-	};
-
-	// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
-	//     methodName(Method, Name),
-	//     methodDescriptor(Method, Descriptor),
-	//     member(method(_, Name, Descriptor), SuperMethodList),
-	//     isNotFinal(Method, Superclass),
-	//     isNotStatic(Method, Superclass),
-	//     isNotPrivate(Method, Superclass).
-	let final_method_not_overridden_4 = |_| {
-		let name = method.name()?;
-		let descriptor = method.descriptor()?;
-		member(&name, &descriptor, super_method_list)?;
-		method.is_not_final(superclass)?;
-		method.is_not_static(superclass)?;
-		method.is_not_private(superclass)
-	};
-
-	// finalMethodNotOverridden(Method, Superclass, SuperMethodList) :-
-	//     methodName(Method, Name),
-	//     methodDescriptor(Method, Descriptor),
-	//     notMember(method(_, Name, Descriptor), SuperMethodList),
-	//     doesNotOverrideFinalMethodOfSuperclass(Superclass, Method).
-	let final_method_not_overridden_5 = |_| {
-		let name = method.name()?;
-		let descriptor = method.descriptor()?;
-		not_member(&name, &descriptor, super_method_list)?;
-		does_not_override_final_method_of_superclass(superclass, method)
-	};
-
-	final_method_not_overridden_0()
-		.or_else(final_method_not_overridden_1)
-		.or_else(final_method_not_overridden_2)
-		.or_else(final_method_not_overridden_3)
-		.or_else(final_method_not_overridden_4)
-		.or_else(final_method_not_overridden_5)
 }
 
 // 4.10.1.6
@@ -1303,7 +1244,8 @@ fn final_method_not_overridden(method: &Method, superclass: &Class, super_method
 //     handlersAreLegal(Environment),
 //     mergedCodeIsTypeSafe(Environment, MergedCode, StackFrame).
 fn method_with_code_is_type_safe(class: &Class, method: &Method) -> Bool {
-	let (frame_size, max_stack, parsed_code, handlers, stack_map) = parse_code_attribute(class, method)?;
+	let (frame_size, max_stack, parsed_code, handlers, stack_map) =
+		parse_code_attribute(class, method)?;
 	let merged_code = merge_stack_map_and_code(stack_map, parsed_code)?;
 	let (stack_frame, return_type) = method_initial_stack_frame(class, method, frame_size)?;
 	let environment = Environment {
@@ -1315,16 +1257,14 @@ fn method_with_code_is_type_safe(class: &Class, method: &Method) -> Bool {
 		handlers,
 	};
 	handlers_are_legal(&environment)?;
-	merged_code_is_type_safe(&environment, &merged_code, &FrameT::Frame(stack_frame))
+	merged_code_is_type_safe(&environment, merged_code, stack_frame)
 }
 
 // handlersAreLegal(Environment) :-
 //     exceptionHandlers(Environment, Handlers),
 //     checklist(handlerIsLegal(Environment), Handlers).
 fn handlers_are_legal(environment: &Environment) -> Bool {
-	let handlers = environment.exception_handlers()?;
-
-	for handler in handlers {
+	for handler in environment.exception_handlers()? {
 		handler_is_legal(environment, handler)?;
 	}
 
@@ -1357,21 +1297,15 @@ fn handler_is_legal(environment: &Environment, handler: &Handler) -> Bool {
 	let target = handler.target;
 	(start < end).fail("")?;
 	let instructions = environment.all_instructions()?;
-	{
-		fn member(start: usize, instructions: &Vec<Instruction>) -> Bool {
-			for instruction in instructions {
-				if let Instruction::Instruction(offset, _) = instruction {
-					if *offset == start {
-						return Ok(())
-					}
-				}
-			}
-			fail("")
-		}
 
-		//member(instruction(start, _), instructions)
-		member(start, instructions)?;
-	}
+	instructions.iter()
+		.filter_map(|x| match x {
+			Instruction::Instruction(offset, _) => Some(*offset),
+			_ => None,
+		})
+		.contains(&start)
+		.fail("")?;
+
 	let _ = environment.offset_stack_frame(target)?;
 	instructions_include_end(instructions, end)?;
 	let current_loader = environment.current_class_loader()?;
@@ -1382,40 +1316,20 @@ fn handler_is_legal(environment: &Environment, handler: &Handler) -> Bool {
 	init_handler_is_legal(environment, handler)
 }
 
-fn instructions_include_end(instructions: &Vec<Instruction>, end: usize) -> Bool {
-	// instructionsIncludeEnd(Instructions, End) :-
-	//     member(instruction(End, _), Instructions).
-	let instructions_include_end_0 = || {
-		fn member(start: usize, instructions: &Vec<Instruction>) -> Bool {
-			for instruction in instructions {
-				if let Instruction::Instruction(offset, _) = instruction {
-					if *offset == start {
-						return Ok(())
-					}
-				}
-			}
-			fail("")
-		}
-		member(end, instructions)
-	};
 
-	// instructionsIncludeEnd(Instructions, End) :-
-	//     member(endOfCode(End), Instructions).
-	let instructions_include_end_1 = |_| {
-		fn member(start: usize, instructions: &Vec<Instruction>) -> Bool {
-			for instruction in instructions {
-				if let Instruction::EndOfCode(offset) = instruction {
-					if *offset == start {
-						return Ok(())
-					}
-				}
-			}
-			fail("")
-		}
-		member(end, instructions)
-	};
-
-	instructions_include_end_0().or_else(instructions_include_end_1)
+// instructionsIncludeEnd(Instructions, End) :-
+//     member(instruction(End, _), Instructions).
+// instructionsIncludeEnd(Instructions, End) :-
+//     member(endOfCode(End), Instructions).
+fn instructions_include_end(instructions: &[Instruction], end: usize) -> Bool {
+	instructions.iter()
+		.filter_map(|x| match x {
+			Instruction::Instruction(offset, _) => Some(*offset),
+			Instruction::EndOfCode(offset) => Some(*offset),
+			_ => None,
+		})
+		.contains(&end)
+		.fail("")
 }
 
 fn handler_exception_class(handler: &Handler, loader: &Loader) -> Result<VerificationType> {
@@ -1430,17 +1344,16 @@ fn handler_exception_class(handler: &Handler, loader: &Loader) -> Result<Verific
 		//     isBootstrapLoader(BL).
 		let bl = get_bootstrap_loader()?;
 		bl.is_bootstrap_loader()?;
-		Ok(VerificationType::Class("java/lang/Throwable".into(), bl))
+		Ok(VerificationType::Class(JAVA_LANG_THROWABLE.into(), bl))
 	}
 }
 
-fn not_init_handler(environment: &Environment, handler: &Handler) -> Bool {
+fn not_init_handler(environment: &Environment, _handler: &Handler) -> Bool {
 	// notInitHandler(Environment, Handler) :-
 	//     Environment = environment(_Class, Method, _, Instructions, _, _),
 	//     isNotInit(Method).
 	let not_init_handler_0 = || {
-		let method = &environment.method;
-		method.is_not_init()
+		environment.method.is_not_init()
 	};
 
 	// notInitHandler(Environment, Handler) :-
@@ -1450,9 +1363,9 @@ fn not_init_handler(environment: &Environment, handler: &Handler) -> Bool {
 	//     CP = method(MethodClassName, MethodName, Descriptor),
 	//     MethodName \= '<init>'.
 	let not_init_handler_1 = |_| {
-		let method = &environment.method;
 		let instructions = &environment.method;
-		method.is_init()?;
+		environment.method.is_init()?;
+		// this is searching the first invokespcial and then doing things with it
 		//member(instruction(_, invokespecial(CP)), instructions)?;
 		//CP = method(method_class_name, method_name, descriptor);
 		//(method_name != "<init>").fail("")
@@ -1478,11 +1391,10 @@ fn init_handler_is_legal(environment: &Environment, handler: &Handler) -> Bool {
 		let instructions = environment.all_instructions()?;
 		let target = handler.target;
 
-		let handler_instructions: Vec<Instruction> = instructions.iter()
-			.filter(|instruction| is_applicable_instruction(target, instruction).is_ok())
-			.cloned()
-			.collect();
-		no_attempt_to_return_normally(&handler_instructions)
+		let handler_instructions = instructions.iter()
+			.filter(|instruction| is_applicable_instruction(target, instruction))
+			.cloned();
+		no_attempt_to_return_normally(handler_instructions)
 	};
 
 	init_handler_is_legal_0().or_else(init_handler_is_legal_1)
@@ -1504,34 +1416,39 @@ fn is_init_handler(environment: &Environment, handler: &Handler) -> Bool {
 
 // isApplicableInstruction(HandlerStart, instruction(Offset, _)) :-
 //     Offset >= HandlerStart.
-fn is_applicable_instruction(handler_start: usize, instruction: &Instruction) -> Bool {
-	(instruction.offset() >= handler_start).fail("")
+fn is_applicable_instruction(handler_start: usize, instruction: &Instruction) -> bool {
+	match instruction {
+		Instruction::Instruction(offset, _) => *offset >= handler_start,
+		_ => false,
+	}
 }
 
-fn no_attempt_to_return_normally(instructions: &Vec<Instruction>) -> Bool {
-	// noAttemptToReturnNormally(Instructions) :-
-	//     notMember(instruction(_, return), Instructions).
-	let a = || {
-		for instruction in instructions {
-			if let Instruction::Instruction(_, Opcode::Return) = instruction {
-				return false;
-			}
-		}
-		true
-	};
+// noAttemptToReturnNormally(Instructions) :-
+//     notMember(instruction(_, return), Instructions).
+// noAttemptToReturnNormally(Instructions) :-
+//     member(instruction(_, athrow), Instructions).
+fn no_attempt_to_return_normally<I: Iterator<Item=Instruction>>(instructions: I) -> Bool {
+	let mut found_return = false;
+	let mut found_athrow = false;
 
-	// noAttemptToReturnNormally(Instructions) :-
-	//     member(instruction(_, athrow), Instructions).
-	let b = || {
-		for instruction in instructions {
-			if let Instruction::Instruction(_, Opcode::AThrow) = instruction {
-				return true;
-			}
+	for instruction in instructions {
+		match instruction {
+			Instruction::Instruction(_, Opcode::Return) => found_return = true,
+			Instruction::Instruction(_, Opcode::AThrow) => found_athrow = true,
+			_ => {},
 		}
-		false
-	};
+	}
 
-	a().fail("").or_else(|_| b().fail(""))
+	if found_return {
+		if found_athrow {
+			Ok(())
+		} else {
+			fail("")
+		}
+	} else {
+		// no return -> is valid
+		Ok(())
+	}
 }
 
 // mergeStackMapAndCode([], CodeList, CodeList).
@@ -1547,7 +1464,30 @@ fn no_attempt_to_return_normally(instructions: &Vec<Instruction>) -> Bool {
 //     mergeStackMapAndCode([stackMap(OffsetM, Map) | RestMap],
 //                          RestCode, RestMerge).
 fn merge_stack_map_and_code(stack_map: Vec<Instruction>, code: Vec<Instruction>) -> Result<Vec<Instruction>> {
-	todo!()
+	let mut merged = Vec::with_capacity(stack_map.len() + code.len());
+
+	let mut stack_map = stack_map.into_iter();
+	let mut code = code.into_iter();
+
+	loop {
+		match (stack_map.next(), code.next()) {
+			(None, Some(next_code)) => {
+				merged.push(next_code);
+			},
+			(Some(frame), Some(opcode)) => {
+				if frame.offset() == opcode.offset() {
+					merged.push(frame);
+					merged.push(opcode);
+				} else if opcode.offset() < frame.offset() {
+					merged.push(opcode);
+				}
+			},
+			(None, None) => break,
+			_ => fail("")?,
+		}
+	}
+
+	Ok(merged)
 }
 
 // methodInitialStackFrame(Class, Method, FrameSize, frame(Locals, [], Flags),
@@ -1560,9 +1500,8 @@ fn merge_stack_map_and_code(stack_map: Vec<Instruction>, code: Vec<Instruction>)
 //     append(ThisList, Args, ThisArgs),
 //     expandToLength(ThisArgs, FrameSize, top, Locals).
 fn method_initial_stack_frame(class: &Class, method: &Method, frame_size: usize) -> Result<(Frame, VerificationType)> {
-	let descriptor = method.descriptor()?;
-	let (raw_args, return_type) = parse_method_descriptor(&descriptor)?;
-	let args = expand_type_list(&raw_args)?;
+	let (raw_args, return_type) = parse_method_descriptor(method.descriptor()?)?;
+	let args = expand_type_list(raw_args)?;
 	let this_list = method_initial_this_type(class, method)?;
 	let flag_this_uninit = flags(&this_list)?;
 	let this_args = {
@@ -1593,16 +1532,17 @@ fn method_initial_stack_frame(class: &Class, method: &Method, frame_size: usize)
 // expandTypeList([Item | List], [Item, top | Result]) :-
 //     sizeOf(Item, 2),
 //     expandTypeList(List, Result).
-fn expand_type_list(list: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
+fn expand_type_list(list: Vec<VerificationType>) -> Result<Vec<VerificationType>> {
 	let mut out = Vec::new();
 	for i in list {
-		if size_of(i, 1).is_ok() {
-			out.push(i.clone());
-		} else if size_of(i, 2).is_ok() {
-			out.push(i.clone());
-			out.push(VerificationType::Top);
-		} else {
-			fail("")?;
+		match i.size() {
+			TypeSize::OneWord => {
+				out.push(i);
+			},
+			TypeSize::TwoWord => {
+				out.push(i);
+				out.push(VerificationType::Top);
+			},
 		}
 	}
 	Ok(out)
@@ -1641,83 +1581,69 @@ fn expand_to_length<T: Clone>(mut list: Vec<T>, size: usize, filler: T) -> Resul
 }
 
 fn method_initial_this_type(class: &Class, method: &Method) -> Result<Option<VerificationType>> {
-	// methodInitialThisType(_Class, Method, []) :-
-	//     methodAccessFlags(Method, AccessFlags),
-	//     member(static, AccessFlags),
-	//     methodName(Method, MethodName),
-	//     MethodName \= '<init>'.
-
-	// methodInitialThisType(Class, Method, [This]) :-
-	//     methodAccessFlags(Method, AccessFlags),
-	//     notMember(static, AccessFlags),
-	//     instanceMethodInitialThisType(Class, Method, This).
-
 	if method.access_flags()?.is_static {
+		// methodInitialThisType(_Class, Method, []) :-
+		//     methodAccessFlags(Method, AccessFlags),
+		//     member(static, AccessFlags),
+		//     methodName(Method, MethodName),
+		//     MethodName \= '<init>'.
 		let method_name = method.name()?;
 		(method_name != "<init>").fail("")?;
 		Ok(None)
 	} else {
-		// not_member(static, access_flags)
+		// methodInitialThisType(Class, Method, [This]) :-
+		//     methodAccessFlags(Method, AccessFlags),
+		//     notMember(static, AccessFlags),
+		//     instanceMethodInitialThisType(Class, Method, This).
 		Ok(Some(instance_method_initial_this_type(class, method)?))
 	}
 }
 
 fn instance_method_initial_this_type(class: &Class, method: &Method) -> Result<VerificationType> {
-	// instanceMethodInitialThisType(Class, Method, class('java/lang/Object', L)) :-
-	//     methodName(Method, '<init>'),
-	//     classDefiningLoader(Class, L),
-	//     isBootstrapLoader(L),
-	//     classClassName(Class, 'java/lang/Object').
-	let a = || -> Result<VerificationType> {
-		(method.name()? == "<init>").fail("")?;
-		let l = class.defining_loader()?;
-		l.is_bootstrap_loader()?;
-		(class.class_name()? == JAVA_LANG_OBJECT).fail("")?;
-		Ok(VerificationType::Class(JAVA_LANG_OBJECT.into(), l))
-	};
+	let class_name = class.class_name()?;
+	let l = class.defining_loader()?;
+	if method.name()? == "<init>" {
+		let chain = superclass_chain(&class_name, &l)?;
 
-	// instanceMethodInitialThisType(Class, Method, uninitializedThis) :-
-	//     methodName(Method, '<init>'),
-	//     classClassName(Class, ClassName),
-	//     classDefiningLoader(Class, CurrentLoader),
-	//     superclassChain(ClassName, CurrentLoader, Chain),
-	//     Chain \= [].
-	let b = |_| -> Result<VerificationType> {
-		(method.name()? == "<init>").fail("")?;
-		let class_name = class.class_name()?;
-		let current_loader = class.defining_loader()?;
-		let chain = superclass_chain(&class_name, &current_loader)?;
-		(!chain.is_empty()).fail("")?;
-		Ok(VerificationType::UninitializedThis)
-	};
-
-	// instanceMethodInitialThisType(Class, Method, class(ClassName, L)) :-
-	//     methodName(Method, MethodName),
-	//     MethodName \= '<init>',
-	//     classDefiningLoader(Class, L),
-	//     classClassName(Class, ClassName).
-	let c = |_| {
-		let method_name = method.name()?;
-		(method_name != "<init>").fail("")?;
-		let l = class.defining_loader()?;
-		let class_name = class.class_name()?;
+		if chain.is_empty() {
+			// instanceMethodInitialThisType(Class, Method, class('java/lang/Object', L)) :-
+			//     methodName(Method, '<init>'),
+			//     classDefiningLoader(Class, L),
+			//     isBootstrapLoader(L),
+			//     classClassName(Class, 'java/lang/Object').
+			l.is_bootstrap_loader()?;
+			(class_name == JAVA_LANG_OBJECT).fail("")?;
+			Ok(VerificationType::Class(JAVA_LANG_OBJECT.into(), l))
+		} else {
+			// instanceMethodInitialThisType(Class, Method, uninitializedThis) :-
+			//     methodName(Method, '<init>'),
+			//     classClassName(Class, ClassName),
+			//     classDefiningLoader(Class, CurrentLoader),
+			//     superclassChain(ClassName, CurrentLoader, Chain),
+			//     Chain \= [].
+			Ok(VerificationType::UninitializedThis)
+		}
+	} else {
+		// instanceMethodInitialThisType(Class, Method, class(ClassName, L)) :-
+		//     methodName(Method, MethodName),
+		//     MethodName \= '<init>',
+		//     classDefiningLoader(Class, L),
+		//     classClassName(Class, ClassName).
 		Ok(VerificationType::Class(class_name, l))
-	};
-
-	a().or_else(b).or_else(c)
+	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Instruction {
 	Instruction(usize, Opcode),
-	StackMap(StackMap),
+	StackMap(usize, Frame),
 	EndOfCode(usize),
 }
 impl Instruction {
 	fn offset(&self) -> usize {
 		*match self {
 			Instruction::Instruction(offset, _) => offset,
-			Instruction::StackMap(StackMap { offset, .. }) => offset,
+			Instruction::StackMap(offset, _) => offset,
 			Instruction::EndOfCode(offset) => offset,
 		}
 	}
@@ -1729,106 +1655,66 @@ enum FrameT {
 	AfterGoto,
 }
 
-fn merged_code_is_type_safe(environment: &Environment, code: &Vec<Instruction>, frame_t: &FrameT) -> Bool {
-	// mergedCodeIsTypeSafe(Environment, [stackMap(Offset, MapFrame) | MoreCode],
-	//                      frame(Locals, OperandStack, Flags)) :-
-	//     frameIsAssignable(frame(Locals, OperandStack, Flags), MapFrame),
-	//     mergedCodeIsTypeSafe(Environment, MoreCode, MapFrame).
-	let a = || {
-		if let (Some(Instruction::StackMap(StackMap {
-			offset: _,
-			type_state: map_frame,
-		})), more_code) = head_rest(code) {
-			if let FrameT::Frame(frame) = frame_t {
-				Frame::is_assignable(frame, map_frame)?;
-				merged_code_is_type_safe(environment, &more_code, &FrameT::Frame(map_frame.clone()))
-			} else {
-				fail("")
-			}
-		} else {
-			fail("")
-		}
-	};
+fn merged_code_is_type_safe(environment: &Environment, code: Vec<Instruction>, frame: Frame) -> Bool {
+	let mut frame_t = FrameT::Frame(frame);
 
-	// mergedCodeIsTypeSafe(Environment, [instruction(Offset, Parse) | MoreCode],
-	//                      frame(Locals, OperandStack, Flags)) :-
-	//     instructionIsTypeSafe(Parse, Environment, Offset,
-	//                           frame(Locals, OperandStack, Flags),
-	//                           NextStackFrame, ExceptionStackFrame),
-	//     instructionSatisfiesHandlers(Environment, Offset, ExceptionStackFrame),
-	//     mergedCodeIsTypeSafe(Environment, MoreCode, NextStackFrame).
-	let b = |_| {
-		if let (Some(Instruction::Instruction(offset, parse)), more_code) = head_rest(code) {
-			if let FrameT::Frame(frame) = frame_t {
+	for instruction in code {
+		frame_t = match (instruction, frame_t) {
+			// mergedCodeIsTypeSafe(Environment, [stackMap(Offset, MapFrame) | MoreCode],
+			//                      frame(Locals, OperandStack, Flags)) :-
+			//     frameIsAssignable(frame(Locals, OperandStack, Flags), MapFrame),
+			//     mergedCodeIsTypeSafe(Environment, MoreCode, MapFrame).
+			(Instruction::StackMap(_, map_frame), FrameT::Frame(frame)) => {
+				Frame::is_assignable(&frame, &map_frame)?;
+				FrameT::Frame(map_frame)
+			},
+
+			// mergedCodeIsTypeSafe(Environment, [instruction(Offset, Parse) | MoreCode],
+			//                      frame(Locals, OperandStack, Flags)) :-
+			//     instructionIsTypeSafe(Parse, Environment, Offset,
+			//                           frame(Locals, OperandStack, Flags),
+			//                           NextStackFrame, ExceptionStackFrame),
+			//     instructionSatisfiesHandlers(Environment, Offset, ExceptionStackFrame),
+			//     mergedCodeIsTypeSafe(Environment, MoreCode, NextStackFrame).
+			(Instruction::Instruction(offset, parse), FrameT::Frame(frame)) => {
 				let (next_stack_frame, exception_stack_frame) = instruction_is_type_safe(
 					parse,
 					environment,
-					*offset,
+					offset,
 					frame
 				)?;
-				instruction_satisfies_handlers(environment, *offset, &exception_stack_frame)?;
-				merged_code_is_type_safe(environment, &more_code, &next_stack_frame)
-			} else {
-				fail("")
-			}
-		} else {
-			fail("")
-		}
-	};
+				instruction_satisfies_handlers(environment, offset, exception_stack_frame)?;
+				next_stack_frame
+			},
 
-	// mergedCodeIsTypeSafe(Environment, [stackMap(Offset, MapFrame) | MoreCode],
-	//                      afterGoto) :-
-	//     mergedCodeIsTypeSafe(Environment, MoreCode, MapFrame).
-	let c = |_| {
-		if let (Some(Instruction::StackMap(StackMap {
-			offset: _,
-			type_state: map_frame,
-		})), more_code) = head_rest(code) {
-			if let FrameT::AfterGoto = frame_t {
-				merged_code_is_type_safe(environment, &more_code, &FrameT::Frame(map_frame.clone()))
-			} else {
-				fail("")
-			}
-		} else {
-			fail("")
-		}
-	};
+			// mergedCodeIsTypeSafe(Environment, [stackMap(Offset, MapFrame) | MoreCode],
+			//                      afterGoto) :-
+			//     mergedCodeIsTypeSafe(Environment, MoreCode, MapFrame).
+			(Instruction::StackMap(_, map_frame), FrameT::AfterGoto) => {
+				FrameT::Frame(map_frame)
+			},
 
-	// mergedCodeIsTypeSafe(_Environment, [instruction(_, _) | _MoreCode],
-	//                      afterGoto) :-
-	//     write_ln('No stack frame after unconditional branch'),
-	//     fail.
-	let d = |_| {
-		if let (Some(Instruction::Instruction(_, _)), _) = head_rest(code) {
-			if let FrameT::AfterGoto = frame_t {
-				fail("No stack frame after unconditional branch")
-			} else {
-				fail("")
-			}
-		} else {
-			fail("")
-		}
-	};
+			// mergedCodeIsTypeSafe(_Environment, [instruction(_, _) | _MoreCode],
+			//                      afterGoto) :-
+			//     write_ln('No stack frame after unconditional branch'),
+			//     fail.
+			(Instruction::Instruction(_, _), FrameT::AfterGoto) => {
+				fail("No stack frame after unconditional branch")?
+			},
 
-	// mergedCodeIsTypeSafe(_Environment, [endOfCode(Offset)],
-	//                      afterGoto).
-	let e = |_| {
-		if let (Some(Instruction::EndOfCode(_)), vec) = head_rest(code) {
-			if let FrameT::AfterGoto = frame_t {
-				if vec.is_empty() {
-					Ok(())
-				} else {
-					fail("")
-				}
-			} else {
-				fail("")
-			}
-		} else {
-			fail("")
-		}
-	};
+			// mergedCodeIsTypeSafe(_Environment, [endOfCode(Offset)],
+			//                      afterGoto).
+			// no need to check for empty, since EndOfCode is only at the very end of the instruction list
+			(Instruction::EndOfCode(_), FrameT::AfterGoto) => {
+				return Ok(());
+			},
 
-	a().or_else(b).or_else(c).or_else(d).or_else(e)
+			_ => fail("")?,
+		}
+	}
+
+	// this should never get to run
+	fail("")
 }
 
 // targetIsTypeSafe(Environment, StackFrame, Target) :-
@@ -1836,7 +1722,7 @@ fn merged_code_is_type_safe(environment: &Environment, code: &Vec<Instruction>, 
 //     frameIsAssignable(StackFrame, Frame).
 fn target_is_type_safe(environment: &Environment, stack_frame: &Frame, target: usize) -> Bool {
 	let frame = environment.offset_stack_frame(target)?;
-	Frame::is_assignable(stack_frame, &frame)
+	Frame::is_assignable(stack_frame, frame)
 }
 
 // instructionSatisfiesHandlers(Environment, Offset, ExceptionStackFrame) :-
@@ -1844,14 +1730,14 @@ fn target_is_type_safe(environment: &Environment, stack_frame: &Frame, target: u
 //     sublist(isApplicableHandler(Offset), Handlers, ApplicableHandlers),
 //     checklist(instructionSatisfiesHandler(Environment, ExceptionStackFrame),
 //               ApplicableHandlers).
-fn instruction_satisfies_handlers(environment: &Environment, offset: usize, exception_stack_frame: &Frame) -> Bool {
+fn instruction_satisfies_handlers(environment: &Environment, offset: usize, exception_stack_frame: Frame) -> Bool {
 	let handlers = environment.exception_handlers()?;
 	let applicable_handlers = handlers.iter()
 		.filter(|handler| is_applicable_handler(offset, handler))
 		.collect::<Vec<_>>();
 
 	for handler in applicable_handlers {
-		instruction_satisfies_handler(environment, exception_stack_frame, handler)?;
+		instruction_satisfies_handler(environment, &exception_stack_frame, handler)?;
 	}
 
 	Ok(())
@@ -1878,12 +1764,9 @@ fn instruction_satisfies_handler(environment: &Environment, exc_stack_frame: &Fr
 	let current_loader = environment.current_class_loader()?;
 	let exception_class = handler_exception_class(handler, &current_loader)?;
 
-	let locals = &exc_stack_frame.locals;
-
 	let true_exc_stack_frame = Frame {
-		locals: locals.clone(),
 		operand_stack: vec![exception_class],
-		flag_this_uninit: exc_stack_frame.flag_this_uninit,
+		..exc_stack_frame.clone()
 	};
 
 	operand_stack_has_legal_length(environment, &true_exc_stack_frame.operand_stack)?;
@@ -1892,7 +1775,7 @@ fn instruction_satisfies_handler(environment: &Environment, exc_stack_frame: &Fr
 
 // 4.10.1.7
 
-fn nth0<T: Clone>(index: usize, vec: &Vec<T>) -> Result<T> {
+fn nth0<T: Clone>(index: usize, vec: &[T]) -> Result<T> {
 	match vec.get(index) {
 		Some(x) => Ok(x.clone()),
 		None => fail(""),
@@ -1905,163 +1788,186 @@ fn nth0<T: Clone>(index: usize, vec: &Vec<T>) -> Result<T> {
 //     isAssignable(ActualType, Type),
 //     validTypeTransition(Environment, [], ActualType, StackFrame,
 //                         NextStackFrame).
-fn load_is_type_safe(environment: &Environment, index: &LvIndex, type_: &VerificationType, stack_frame: &Frame) -> Result<Frame> {
+fn load_is_type_safe(environment: &Environment, index: &LvIndex, type_: &VerificationType, stack_frame: Frame) -> Result<Frame> {
 	let locals = &stack_frame.locals;
 	let actual_type = nth0(index.0, locals)?;
 	VerificationType::is_assignable(&actual_type, type_)?;
-	valid_type_transition(environment, &Vec::new(), &actual_type, stack_frame)
+	valid_type_transition(environment, [], actual_type, stack_frame)
 }
 
-// storeIsTypeSafe(_Environment, Index, Type,
-//                 frame(Locals, OperandStack, Flags),
-//                 frame(NextLocals, NextOperandStack, Flags)) :-
-//     popMatchingType(OperandStack, Type, NextOperandStack, ActualType),
-//     modifyLocalVariable(Index, ActualType, Locals, NextLocals).
-fn store_is_type_safe(_environment: &Environment, index: &LvIndex, type_: &VerificationType, frame: &Frame) -> Result<Frame> {
-	let (next_operand_stack, actual_type) = pop_matching_type(&frame.operand_stack, type_)?;
-	let next_locals = modify_local_variable(index.0, &actual_type, &frame.locals)?;
-	Ok(Frame {
-		locals: next_locals,
-		operand_stack: next_operand_stack,
-		flag_this_uninit: frame.flag_this_uninit,
-	})
+impl Frame {
+	// storeIsTypeSafe(_Environment, Index, Type,
+	//                 frame(Locals, OperandStack, Flags),
+	//                 frame(NextLocals, NextOperandStack, Flags)) :-
+	//     popMatchingType(OperandStack, Type, NextOperandStack, ActualType),
+	//     modifyLocalVariable(Index, ActualType, Locals, NextLocals).
+	fn store_is_type_safe(self, index: &LvIndex, type_: VerificationType) -> Result<Frame> {
+		let (next_operand_stack, actual_type) = pop_matching_type(self.operand_stack, type_)?;
+		let next_locals = modify_local_variable(index.0, &actual_type, self.locals)?;
+		Ok(Frame {
+			locals: next_locals,
+			operand_stack: next_operand_stack,
+			..self
+		})
+	}
 }
 
-// modifyLocalVariable(Index, Type, Locals, NewLocals) :-
-//     modifyLocalVariable(0, Index, Type, Locals, NewLocals).
-fn modify_local_variable(index: usize, type_: &VerificationType, locals: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
-	modify_local_variable_5(0, index, type_, locals)
-}
+/// Given local variables `Locals`, modifying `Index` to have type `Type` results in the local variable list `NewLocals`.
+/// The modifications are somewhat involved, because some values (and their corresponding types) occupy two local variables.
+/// Hence, modifying `L[N]` may require modifying `L[N+1]` (because the type will occupy both the `N` and `N+1` slots) or
+/// `L[N-1]` (because local `N` used to be the upper half of the two word value/type starting at local `N-1`, and so local
+/// `N-1` must be invalidated), or both. This is described further below. We start at `L[0]` and count up.
+/// ```
+/// modifyLocalVariable(Index, Type, Locals, NewLocals) :-
+///     modifyLocalVariable(0, Index, Type, Locals, NewLocals).
+/// ```
+/// Given `LocalsRest`, the suffix of the local variable list starting at index `I`, modifying local variable `Index` to have type
+/// `Type` results in the local variable list suffix `NextLocalsRest`.
+///
+/// If `I < Index-1`, just copy the input to the output and recurse forward. If `I = Index-1`, the type of local `I` may change.
+/// This can occur if `L[I]` has a type of size `2`. Once we set `L[I+1]` to the new type (and the corresponding value), the type/value
+/// of `L[I]` will be invalidated, as its upper half will be trashed. Then we recurse forward.
+/// ```
+/// modifyLocalVariable(I, Index, Type,
+///                     [Locals1 | LocalsRest],
+///                     [Locals1 | NextLocalsRest] ) :-
+///     I < Index - 1,
+///     I1 is I + 1,
+///     modifyLocalVariable(I1, Index, Type, LocalsRest, NextLocalsRest).
+/// modifyLocalVariable(I, Index, Type,
+///                     [Locals1 | LocalsRest],
+///                     [NextLocals1 | NextLocalsRest] ) :-
+///     I =:= Index - 1,
+///     modifyPreIndexVariable(Locals1, NextLocals1),
+///     modifyLocalVariable(Index, Index, Type, LocalsRest, NextLocalsRest).
+/// ```
+/// When we find the variable, and it only occupies one word, we change it to `Type` and we're done. When we find the variable, and it
+/// occupies two words, we change its type to `Type` and the next word to `top`.
+/// ```
+/// modifyLocalVariable(Index, Index, Type,
+///                     [_ | LocalsRest], [Type | LocalsRest]) :-
+///     sizeOf(Type, 1).
+/// modifyLocalVariable(Index, Index, Type,
+///                     [_, _ | LocalsRest], [Type, top | LocalsRest]) :-
+///     sizeOf(Type, 2).
+/// ```
+/// We refer to a local whose index immediately precedes a local whose type will be modified as a pre-index variable. The future type of
+/// a pre-index variable of type `InputType` is `Result`. If the type, `Type`, of the pre-index local is of size `1`, it doesn't change.
+/// If the type of the pre-index local, `Type`, is `2`, we need to mark the lower half of its two word value as unusable, by setting its
+/// type to `top`.
+fn modify_local_variable(index: usize, type_: &VerificationType, mut locals: Vec<VerificationType>) -> Result<Vec<VerificationType>> {
+	// TODO: this *could* panic, because of []
 
-fn modify_local_variable_5(i: usize, index: usize, type_: &VerificationType, locals: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
-	// modifyLocalVariable(I, Index, Type,
-	//                     [Locals1 | LocalsRest],
-	//                     [Locals1 | NextLocalsRest] ) :-
-	//     I < Index - 1,
-	//     I1 is I + 1,
-	//     modifyLocalVariable(I1, Index, Type, LocalsRest, NextLocalsRest).
-	let a = || -> Result<Vec<VerificationType>> {
-		(i < index - 1).fail("")?; // TODO: could panic?
-		let i1 = i + 1;
+	if index >= 1 {
+		// can only happen if there is a local before the local we modify
+		locals[index - 1] = modify_pre_index_variable(&locals[index - 1])?;
+	}
 
-		todo!()
-	};
+	locals[index] = type_.clone();
+	if type_.size() == TypeSize::TwoWord {
+		// TODO: also this doesn't check if we're out of bounds... since we could in theory try to set a 2 wide at the very end, which is illegal!
+		locals[index + 1] = VerificationType::Top;
+	}
 
-	// modifyLocalVariable(I, Index, Type,
-	//                     [Locals1 | LocalsRest],
-	//                     [NextLocals1 | NextLocalsRest] ) :-
-	//     I =:= Index - 1,
-	//     modifyPreIndexVariable(Locals1, NextLocals1),
-	//     modifyLocalVariable(Index, Index, Type, LocalsRest, NextLocalsRest).
-	let b = |_| -> Result<Vec<VerificationType>> {
-		(i == index - 1).fail("")?; // TODO: could panic?
-
-		todo!()
-	};
-
-	// modifyLocalVariable(Index, Index, Type,
-	//                     [_ | LocalsRest], [Type | LocalsRest]) :-
-	//     sizeOf(Type, 1).
-	let c = |_| -> Result<Vec<VerificationType>> {
-		(i == index).fail("")?;
-		size_of(type_, 1)?;
-		todo!()
-	};
-
-	// modifyLocalVariable(Index, Index, Type,
-	//                     [_, _ | LocalsRest], [Type, top | LocalsRest]) :-
-	//     sizeOf(Type, 2).
-	let d = |_| {
-		(i == index).fail("")?;
-		size_of(type_, 2)?;
-		todo!()
-	};
-
-	a().or_else(b).or_else(c).or_else(d)
+	Ok(locals)
 }
 
 // modifyPreIndexVariable(Type, Type) :- sizeOf(Type, 1).
 // modifyPreIndexVariable(Type, top) :- sizeOf(Type, 2).
 fn modify_pre_index_variable(type_: &VerificationType) -> Result<VerificationType> {
-	let a = || -> Result<VerificationType> {
-		size_of(type_, 1)?;
-		Ok(type_.clone())
-	};
-	let b = |_| {
-		size_of(type_, 2)?;
-		Ok(VerificationType::Top)
-	};
-	a().or_else(b)
+	match type_.size() {
+		TypeSize::OneWord => Ok(type_.clone()),
+		TypeSize::TwoWord => Ok(VerificationType::Top),
+	}
 }
 
 // 4.10.1.8
 
 fn passes_protected_check<Name, Descriptor>(environment: &Environment, member_class_name: &ClassName, member_name: &Name, member_descriptor: &Descriptor, stack_frame: &Frame) -> Bool {
-	// passesProtectedCheck(Environment, MemberClassName, MemberName,
-	//                      MemberDescriptor, StackFrame) :-
-	//     thisClass(Environment, class(CurrentClassName, CurrentLoader)),
-	//     superclassChain(CurrentClassName, CurrentLoader, Chain),
-	//     notMember(class(MemberClassName, _), Chain).
-	let a = || -> Bool {
-		let (current_class_name, current_loader) = environment.this_class()?;
-		let chain = superclass_chain(&current_class_name, &current_loader)?;
-		//not_member(class(member_class_name, _), chain)
-		todo!()
-	};
 
-	// passesProtectedCheck(Environment, MemberClassName, MemberName,
-	//                      MemberDescriptor, StackFrame) :-
-	//     thisClass(Environment, class(CurrentClassName, CurrentLoader)),
-	//     superclassChain(CurrentClassName, CurrentLoader, Chain),
-	//     member(class(MemberClassName, _), Chain),
-	//     classesInOtherPkgWithProtectedMember(
-	//       class(CurrentClassName, CurrentLoader),
-	//       MemberName, MemberDescriptor, MemberClassName, Chain, []).
-	let b = |_| -> Bool {
-		let (current_class_name, current_loader) = environment.this_class()?;
-		let chain = superclass_chain(&current_class_name, &current_loader)?;
-		//member(class(member_class_name, _), chain)?;
-		//classes_in_other_pkg_with_protected_member(
-		//	(current_class_name, current_loader),
-		//	member_name, member_descriptor, member_class_name, chain, Vec::new()
-		//)
-		todo!()
-	};
+	let (current_class_name, current_loader) = environment.this_class()?;
+	let chain = superclass_chain(&current_class_name, &current_loader)?;
 
-	// passesProtectedCheck(Environment, MemberClassName, MemberName,
-	//                      MemberDescriptor,
-	//                      frame(_Locals, [Target | Rest], _Flags)) :-
-	//     thisClass(Environment, class(CurrentClassName, CurrentLoader)),
-	//     superclassChain(CurrentClassName, CurrentLoader, Chain),
-	//     member(class(MemberClassName, _), Chain),
-	//     classesInOtherPkgWithProtectedMember(
-	//       class(CurrentClassName, CurrentLoader),
-	//       MemberName, MemberDescriptor, MemberClassName, Chain, List),
-	//     List /= [],
-	//     loadedClass(MemberClassName, CurrentLoader, ReferencedClass),
-	//     isNotProtected(ReferencedClass, MemberName, MemberDescriptor).
-	let c = |_| -> Bool {
-		todo!()
-	};
 
-	// passesProtectedCheck(Environment, MemberClassName, MemberName,
-	//                      MemberDescriptor,
-	//                      frame(_Locals, [Target | Rest], _Flags)) :-
-	//     thisClass(Environment, class(CurrentClassName, CurrentLoader)),
-	//     superclassChain(CurrentClassName, CurrentLoader, Chain),
-	//     member(class(MemberClassName, _), Chain),
-	//     classesInOtherPkgWithProtectedMember(
-	//       class(CurrentClassName, CurrentLoader),
-	//       MemberName, MemberDescriptor, MemberClassName, Chain, List),
-	//     List /= [],
-	//     loadedClass(MemberClassName, CurrentLoader, ReferencedClass),
-	//     isProtected(ReferencedClass, MemberName, MemberDescriptor),
-	//     isAssignable(Target, class(CurrentClassName, CurrentLoader)).
-	let d = |_| {
-		todo!()
-	};
+	fn member(chain: &Vec<(ClassName, Loader)>, member_class_name: &ClassName) -> bool {
+		for (name, _) in chain {
+			if name == member_class_name {
+				return true
+			}
+		}
+		false
+	}
 
-	a().or_else(b).or_else(c).or_else(d)
+	if !member(&chain, member_class_name) {
+		// passesProtectedCheck(Environment, MemberClassName, MemberName,
+		//                      MemberDescriptor, StackFrame) :-
+		//     thisClass(Environment, class(CurrentClassName, CurrentLoader)),
+		//     superclassChain(CurrentClassName, CurrentLoader, Chain),
+		//     notMember(class(MemberClassName, _), Chain).
+		Ok(())
+	} else {
+		let list: Vec<Bool> = classes_in_other_pkg_with_protected_member(
+			(&current_class_name, &current_loader),
+			member_name, member_descriptor, member_class_name, chain
+		)?;
+
+		if list.is_empty() {
+			// passesProtectedCheck(Environment, MemberClassName, MemberName,
+			//                      MemberDescriptor, StackFrame) :-
+			//     thisClass(Environment, class(CurrentClassName, CurrentLoader)),
+			//     superclassChain(CurrentClassName, CurrentLoader, Chain),
+			//     member(class(MemberClassName, _), Chain),
+			//     classesInOtherPkgWithProtectedMember(
+			//       class(CurrentClassName, CurrentLoader),
+			//       MemberName, MemberDescriptor, MemberClassName, Chain, []).
+			Ok(())
+		} else {
+			let referenced_class = loaded_class(member_class_name, &current_loader)?;
+
+			// passesProtectedCheck(Environment, MemberClassName, MemberName,
+			//                      MemberDescriptor,
+			//                      frame(_Locals, [Target | Rest], _Flags)) :-
+			//     thisClass(Environment, class(CurrentClassName, CurrentLoader)),
+			//     superclassChain(CurrentClassName, CurrentLoader, Chain),
+			//     member(class(MemberClassName, _), Chain),
+			//     classesInOtherPkgWithProtectedMember(
+			//       class(CurrentClassName, CurrentLoader),
+			//       MemberName, MemberDescriptor, MemberClassName, Chain, List),
+			//     List /= [],
+			//     loadedClass(MemberClassName, CurrentLoader, ReferencedClass),
+			//     isNotProtected(ReferencedClass, MemberName, MemberDescriptor).
+			let c = || -> Bool {
+				is_not_protected(&referenced_class, member_name, member_descriptor)
+			};
+
+			// passesProtectedCheck(Environment, MemberClassName, MemberName,
+			//                      MemberDescriptor,
+			//                      frame(_Locals, [Target | Rest], _Flags)) :-
+			//     thisClass(Environment, class(CurrentClassName, CurrentLoader)),
+			//     superclassChain(CurrentClassName, CurrentLoader, Chain),
+			//     member(class(MemberClassName, _), Chain),
+			//     classesInOtherPkgWithProtectedMember(
+			//       class(CurrentClassName, CurrentLoader),
+			//       MemberName, MemberDescriptor, MemberClassName, Chain, List),
+			//     List /= [],
+			//     loadedClass(MemberClassName, CurrentLoader, ReferencedClass),
+			//     isProtected(ReferencedClass, MemberName, MemberDescriptor),
+			//     isAssignable(Target, class(CurrentClassName, CurrentLoader)).
+			let d = |_| {
+				let target = {
+					if let Some(x) = stack_frame.operand_stack.first() {
+						x
+					} else {
+						fail("")?
+					}
+				};
+				is_protected(&referenced_class, member_name, member_descriptor)?;
+				VerificationType::is_assignable(target, &VerificationType::Class(current_class_name, current_loader))
+			};
+
+			c().or_else(d)
+		}
+	}
 }
 
 // classesInOtherPkgWithProtectedMember(_, _, _, _, [], []).
@@ -2093,7 +1999,8 @@ fn passes_protected_check<Name, Descriptor>(environment: &Environment, member_cl
 //     sameRuntimePackage(Class, class(MemberClassName, L)),
 //     classesInOtherPkgWithProtectedMember(
 //       Class, MemberName, MemberDescriptor, MemberClassName, Tail, T).
-fn classes_in_other_pkg_with_protected_member<Name>(class: &Class, member_name: &Name, ) -> Bool {
+fn classes_in_other_pkg_with_protected_member<Name, D, E, A, B>(class: (&ClassName, &Loader), member_name: &Name, member_descriptor: D, member_class_name: E,
+	a: A) -> Result<Vec<B>> {
 	todo!()
 }
 
@@ -2136,19 +2043,32 @@ impl Frame {
 	//     ExceptionStackFrame = frame(Locals, [], Flags).
 	fn exception_stack_frame(&self) -> Result<Frame> {
 		Ok(Frame {
-			locals: self.locals.clone(),
 			operand_stack: Vec::new(),
-			flag_this_uninit: self.flag_this_uninit,
+			..self.clone()
 		})
 	}
 }
 
-fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, offset: usize, stack_frame: &Frame) -> Result<(FrameT, Frame)> {
+impl VerificationType {
+	// classDimension(arrayOf(X), Dimension) :-
+	//     classDimension(X, Dimension1),
+	//     Dimension is Dimension1 + 1.
+	//
+	// classDimension(_, Dimension) :-
+	//     Dimension = 0.
+	fn class_dimension(&self) -> usize {
+		match self {
+			Self::ArrayOf(x) => x.as_verification_type().class_dimension() + 1,
+			_ => 0,
+		}
+	}
+}
+
+fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offset: usize, stack_frame: Frame) -> Result<(FrameT, Frame)> {
 	use VerificationType::*;
 	use Opcode::*;
 
-	#[deprecated]
-	let next_stack_frame = stack_frame.clone();
+	let exception_stack_frame = stack_frame.exception_stack_frame()?;
 
 	// instructionIsTypeSafe(Instruction, Environment, Offset, StackFrame,
 	//                       NextStackFrame, ExceptionStackFrame) :-
@@ -2169,20 +2089,19 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         ComponentType, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		AALoad => {
-			let array_type = nth1_operand_stack_is(2, stack_frame)?;
+			let array_type = stack_frame.nth1_operand_stack_is(2)?;
 			let component_type = array_type.array_component_type()?;
 			let bl = get_bootstrap_loader()?;
 			bl.is_bootstrap_loader()?;
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![
+				[
 					Int,
 					ArrayOf(ArrayType::Other(Box::new(Class(JAVA_LANG_OBJECT.into(), bl))))
 				],
-				&component_type.as_verification_type(),
+				component_type.as_verification_type(),
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2198,15 +2117,13 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		AAStore => {
 			let bl = get_bootstrap_loader()?;
 			bl.is_bootstrap_loader()?;
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![
+			let next_stack_frame = stack_frame.can_pop(
+				[
 					Class(JAVA_LANG_OBJECT.into(), bl.clone()),
 					Int,
 					ArrayOf(ArrayType::Other(Box::new(Class(JAVA_LANG_OBJECT.into(), bl))))
 				]
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2217,11 +2134,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		AConstNull => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&Vec::new(),
-				&Null,
+				[],
+				Null,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2230,8 +2146,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     loadIsTypeSafe(Environment, Index, reference, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		ALoad(index) => {
-			let next_stack_frame = load_is_type_safe(environment, index, &Reference, stack_frame)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = load_is_type_safe(environment, &index, &Reference, stack_frame)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2242,8 +2157,15 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		ANewArray{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			// todo!(); CP = class(_, _) || CP = arrayOf(_)
+			let cp = Null;
+
+			let next_stack_frame = valid_type_transition(
+				environment,
+				[Int],
+				ArrayOf(ArrayType::Other(Box::new(cp))),
+				stack_frame
+			)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2256,8 +2178,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		AReturn => {
 			let return_type = environment.this_method_return_type()?;
 			VerificationType::is_assignable(return_type, &Reference)?;
-			let _popped_stack_frame = can_pop(stack_frame, &vec![return_type.clone()])?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let _popped_stack_frame = stack_frame.can_pop([return_type.clone()])?;
 			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
@@ -2268,15 +2189,14 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     validTypeTransition(Environment, [top], int, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		ArrayLength => {
-			let array_type = nth1_operand_stack_is(1, stack_frame)?;
+			let array_type = stack_frame.nth1_operand_stack_is(1)?;
 			let _ = array_type.array_component_type()?;
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Top],
-				&Int,
+				[Top],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2285,13 +2205,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     storeIsTypeSafe(Environment, Index, reference, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		AStore(index) => {
-			let next_stack_frame = store_is_type_safe(
-				environment,
-				index,
-				&Reference,
-				stack_frame
-			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = stack_frame.store_is_type_safe(&index, Reference)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2303,11 +2217,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		AThrow => {
 			let bl = get_bootstrap_loader()?;
 			bl.is_bootstrap_loader()?;
-			let _popped_stack_frame = can_pop(
-				&stack_frame,
-				&vec![Class(JAVA_LANG_THROWABLE.into(), bl)]
+			let _popped_stack_frame = stack_frame.can_pop(
+				[Class(JAVA_LANG_THROWABLE.into(), bl)]
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
@@ -2319,15 +2231,14 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		BALoad => {
-			let array_type = nth1_operand_stack_is(2, &stack_frame)?;
+			let array_type = stack_frame.nth1_operand_stack_is(2)?;
 			array_type.is_small_array()?;
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, Top],
-				&Int,
-				&stack_frame
+				[Int, Top],
+				Int,
+				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2338,13 +2249,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     canPop(StackFrame, [int, int, top], NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		BAStore => {
-			let array_type = nth1_operand_stack_is(3, &stack_frame)?;
+			let array_type = stack_frame.nth1_operand_stack_is(3)?;
 			array_type.is_small_array()?;
-			let next_stack_frame = can_pop(
-				&stack_frame,
-				&vec![Int, Int, Top],
-			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = stack_frame.can_pop([Int, Int, Top])?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2362,11 +2269,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		CALoad => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, ArrayOf(ArrayType::Char)],
-				&Int,
+				[Int, ArrayOf(ArrayType::Char)],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2375,11 +2281,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     canPop(StackFrame, [int, int, arrayOf(char)], NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		CAStore => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Int, Int, ArrayOf(ArrayType::Char)]
+			let next_stack_frame = stack_frame.can_pop(
+				[Int, Int, ArrayOf(ArrayType::Char)]
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2391,8 +2295,17 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		CheckCast{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			//todo!(); // CP = class(_, _) || CP = arrayOf(_)
+			let cp = Null;
+
+			let bl = get_bootstrap_loader()?;
+			bl.is_bootstrap_loader()?;
+			let next_stack_frame = valid_type_transition(
+				environment,
+				[Class(JAVA_LANG_OBJECT.into(), bl)],
+				cp,
+				stack_frame
+			)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2404,11 +2317,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		D2f => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Double],
-				&Float,
+				[Double],
+				Float,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2420,11 +2332,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		D2i => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Double],
-				&Int,
+				[Double],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2436,11 +2347,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		D2l => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Double],
-				&Long,
+				[Double],
+				Long,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2456,11 +2366,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		DAdd | DDiv | DMul | DRem | DSub => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Double, Double],
-				&Double,
+				[Double, Double],
+				Double,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2472,11 +2381,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		DALoad => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, ArrayOf(ArrayType::Other(Box::new(Double)))],
-				&Double,
+				[Int, ArrayOf(ArrayType::Other(Box::new(Double)))],
+				Double,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2485,11 +2393,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     canPop(StackFrame, [double, int, arrayOf(double)], NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		DAStore => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Double, Int, ArrayOf(ArrayType::Other(Box::new(Double)))]
+			let next_stack_frame = stack_frame.can_pop(
+				[Double, Int, ArrayOf(ArrayType::Other(Box::new(Double)))]
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2502,11 +2408,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		DCmpG | DCmpL => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Double, Double],
-				&Int,
+				[Double, Double],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2518,11 +2423,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		DConst0 | DConst1 => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![],
-				&Double,
+				[],
+				Double,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2533,11 +2437,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		DLoad(index) => {
 			let next_stack_frame = load_is_type_safe(
 				environment,
-				index,
+				&index,
 				&Double,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2549,11 +2452,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		DNeg => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Double],
-				&Double,
+				[Double],
+				Double,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2564,11 +2466,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		DReturn => {
 			(environment.this_method_return_type()? == &Double).fail("")?;
-			let _popped_stack_frame = can_pop(
-				stack_frame,
-				&vec![Double]
-			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let _popped_stack_frame = stack_frame.can_pop([Double])?;
 			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
@@ -2577,13 +2475,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     storeIsTypeSafe(Environment, Index, double, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		DStore(index) => {
-			let next_stack_frame = store_is_type_safe(
-				environment,
-				index,
-				&Double,
-				stack_frame
-			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = stack_frame.store_is_type_safe(&index, Double)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2595,8 +2487,12 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(Locals, OutputOperandStack, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Dup => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let (type_, _) = pop_category_1(stack_frame.operand_stack.clone())?;
+			let output_operand_stack = can_safely_push(environment, stack_frame.operand_stack, type_)?;
+			let next_stack_frame = Frame {
+				operand_stack: output_operand_stack,
+				..stack_frame
+			};
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2610,8 +2506,17 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(Locals, OutputOperandStack, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		DupX1 => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let (type_1, stack_1) = pop_category_1(stack_frame.operand_stack)?;
+			let (type_2, rest) = pop_category_1(stack_1)?;
+			let output_operand_stack = can_safely_push_list(
+				environment,
+				rest,
+				[type_1.clone(), type_2, type_1]
+			)?;
+			let next_stack_frame = Frame {
+				operand_stack: output_operand_stack,
+				..stack_frame
+			};
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2622,29 +2527,57 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(Locals, OutputOperandStack, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		DupX2 => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+
+			fn dup_x2_form_is_type_safe(environment: &Environment, input_operand_stack: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
+				// dup_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
+				//
+				// dup_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup_x2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
+
+				let (type_1, stack_1) = pop_category_1(input_operand_stack.clone())?;
+
+				// dup_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     popCategory1(InputOperandStack, Type1, Stack1),
+				//     popCategory1(Stack1, Type2, Stack2),
+				//     popCategory1(Stack2, Type3, Rest),
+				//     canSafelyPushList(Environment, Rest, [Type1, Type3, Type2, Type1],
+				//                       OutputOperandStack).
+				let form_1 = || -> Result<Vec<VerificationType>> {
+					let (type_2, stack_2) = pop_category_1(stack_1.clone())?;
+					let (type_3, rest) = pop_category_1(stack_2)?;
+					can_safely_push_list(
+						environment,
+						rest,
+						[type_1.clone(), type_3, type_2, type_1.clone()]
+					)
+				};
+
+				// dup_x2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     popCategory1(InputOperandStack, Type1, Stack1),
+				//     popCategory2(Stack1, Type2, Rest),
+				//     canSafelyPushList(Environment, Rest, [Type1, Type2, Type1],
+				//                       OutputOperandStack).
+				let form_2 = || {
+					let (type_2, rest) = pop_category_2(stack_1.clone())?;
+					can_safely_push_list(
+						environment,
+						rest,
+						[type_1.clone(), type_2, type_1.clone()]
+					)
+				};
+
+				form_1().or_else(|_| form_2())
+			}
+
+			let output_operand_stack = dup_x2_form_is_type_safe(environment, &stack_frame.operand_stack)?;
+			let next_stack_frame = Frame {
+				locals: stack_frame.locals.clone(),
+				operand_stack: output_operand_stack,
+				flag_this_uninit: stack_frame.flag_this_uninit
+			};
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
-
-		// dup_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
-		//
-		// dup_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup_x2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
-
-		// dup_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     popCategory1(InputOperandStack, Type1, Stack1),
-		//     popCategory1(Stack1, Type2, Stack2),
-		//     popCategory1(Stack2, Type3, Rest),
-		//     canSafelyPushList(Environment, Rest, [Type1, Type3, Type2, Type1],
-		//                       OutputOperandStack).
-
-		// dup_x2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     popCategory1(InputOperandStack, Type1, Stack1),
-		//     popCategory2(Stack1, Type2, Rest),
-		//     canSafelyPushList(Environment, Rest, [Type1, Type2, Type1],
-		//                       OutputOperandStack).
 
 		// instructionIsTypeSafe(dup2, Environment, _Offset, StackFrame,
 		//                       NextStackFrame, ExceptionStackFrame) :-
@@ -2653,26 +2586,50 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(Locals, OutputOperandStack, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Dup2 => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			fn dup_2_form_is_type_safe(environment: &Environment, input_operand_stack: Vec<VerificationType>) -> Result<Vec<VerificationType>> {
+				// dup2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup2Form1IsTypeSafe(Environment,InputOperandStack, OutputOperandStack).
+				//
+				// dup2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup2Form2IsTypeSafe(Environment,InputOperandStack, OutputOperandStack).
+
+				// dup2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack):-
+				//     popCategory1(InputOperandStack, Type1, TempStack),
+				//     popCategory1(TempStack, Type2, _),
+				//     canSafelyPushList(Environment, InputOperandStack, [Type1, Type2],
+				//                       OutputOperandStack).
+				let form_1 = || {
+					let (type_1, temp_stack) = pop_category_1(input_operand_stack.clone())?;
+					let (type_2, _) = pop_category_1(temp_stack)?;
+					can_safely_push_list(
+						environment,
+						input_operand_stack.clone(),
+						[type_1, type_2]
+					)
+				};
+
+				// dup2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack):-
+				//     popCategory2(InputOperandStack, Type, _),
+				//     canSafelyPush(Environment, InputOperandStack, Type, OutputOperandStack).
+				let form_2 = || {
+					let (type_, _) = pop_category_2(input_operand_stack.clone())?;
+					can_safely_push(
+						environment,
+						input_operand_stack.clone(),
+						type_
+					)
+				};
+
+				form_1().or_else(|_| form_2())
+			}
+
+			let output_operand_stack = dup_2_form_is_type_safe(environment, stack_frame.operand_stack)?;
+			let next_stack_frame = Frame {
+				operand_stack: output_operand_stack,
+				..stack_frame
+			};
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
-
-		// dup2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup2Form1IsTypeSafe(Environment,InputOperandStack, OutputOperandStack).
-		//
-		// dup2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup2Form2IsTypeSafe(Environment,InputOperandStack, OutputOperandStack).
-
-		// dup2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack):-
-		//     popCategory1(InputOperandStack, Type1, TempStack),
-		//     popCategory1(TempStack, Type2, _),
-		//     canSafelyPushList(Environment, InputOperandStack, [Type1, Type2],
-		//                       OutputOperandStack).
-
-		// dup2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack):-
-		//     popCategory2(InputOperandStack, Type, _),
-		//     canSafelyPush(Environment, InputOperandStack, Type, OutputOperandStack).
 
 		// instructionIsTypeSafe(dup2_x1, Environment, _Offset, StackFrame,
 		//                       NextStackFrame, ExceptionStackFrame) :-
@@ -2681,29 +2638,56 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(Locals, OutputOperandStack, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Dup2X1 => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			fn dup_2x1_form_is_type_safe(environment: &Environment, input_operand_stack: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
+				// dup2_x1FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup2_x1Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
+				//
+				// dup2_x1FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup2_x1Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
+
+				// dup2_x1Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     popCategory1(InputOperandStack, Type1, Stack1),
+				//     popCategory1(Stack1, Type2, Stack2),
+				//     popCategory1(Stack2, Type3, Rest),
+				//     canSafelyPushList(Environment, Rest, [Type2, Type1, Type3, Type2, Type1],
+				//                       OutputOperandStack).
+				let form_1 = || {
+					let (type_1, stack_1) = pop_category_1(input_operand_stack.clone())?;
+					let (type_2, stack_2) = pop_category_1(stack_1)?;
+					let (type_3, rest) = pop_category_1(stack_2)?;
+					can_safely_push_list(
+						environment,
+						rest,
+						[type_2.clone(), type_1.clone(), type_3, type_2, type_1]
+					)
+				};
+
+				// dup2_x1Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     popCategory2(InputOperandStack, Type1, Stack1),
+				//     popCategory1(Stack1, Type2, Rest),
+				//     canSafelyPushList(Environment, Rest, [Type1, Type2, Type1],
+				//                       OutputOperandStack).
+				let form_2 = || {
+					let (type_1, stack_1) = pop_category_2(input_operand_stack.clone())?;
+					let (type_2, rest) = pop_category_1(stack_1)?;
+					can_safely_push_list(
+						environment,
+						rest,
+						[type_1.clone(), type_2, type_1]
+					)
+				};
+
+				form_1().or_else(|_| form_2())
+			}
+
+			let output_operand_stack = dup_2x1_form_is_type_safe(environment, &stack_frame.operand_stack)?;
+			let next_stack_frame = Frame {
+				locals: stack_frame.locals.clone(),
+				operand_stack: output_operand_stack,
+				flag_this_uninit: stack_frame.flag_this_uninit
+			};
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
-
-		// dup2_x1FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup2_x1Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
-		//
-		// dup2_x1FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup2_x1Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
-
-		// dup2_x1Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     popCategory1(InputOperandStack, Type1, Stack1),
-		//     popCategory1(Stack1, Type2, Stack2),
-		//     popCategory1(Stack2, Type3, Rest),
-		//     canSafelyPushList(Environment, Rest, [Type2, Type1, Type3, Type2, Type1],
-		//                       OutputOperandStack).
-
-		// dup2_x1Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     popCategory2(InputOperandStack, Type1, Stack1),
-		//     popCategory1(Stack1, Type2, Rest),
-		//     canSafelyPushList(Environment, Rest, [Type1, Type2, Type1],
-		//                       OutputOperandStack).
 
 		// instructionIsTypeSafe(dup2_x2, Environment, _Offset, StackFrame,
 		//                       NextStackFrame, ExceptionStackFrame) :-
@@ -2712,53 +2696,101 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(Locals, OutputOperandStack, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Dup2X2 => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			fn dup_2x2_form_is_type_safe(environment: &Environment, input_operand_stack: Vec<VerificationType>) -> Result<Vec<VerificationType>> {
+				// dup2_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup2_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
+				//
+				// dup2_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup2_x2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
+				//
+				// dup2_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup2_x2Form3IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
+				//
+				// dup2_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     dup2_x2Form4IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
+
+				// dup2_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     popCategory1(InputOperandStack, Type1, Stack1),
+				//     popCategory1(Stack1, Type2, Stack2),
+				//     popCategory1(Stack2, Type3, Stack3),
+				//     popCategory1(Stack3, Type4, Rest),
+				//     canSafelyPushList(Environment, Rest,
+				//                       [Type2, Type1, Type4, Type3, Type2, Type1],
+				//                       OutputOperandStack).
+				let form_1 = || {
+					let (type_1, stack_1) = pop_category_1(input_operand_stack.clone())?;
+					let (type_2, stack_2) = pop_category_1(stack_1)?;
+					let (type_3, stack_3) = pop_category_1(stack_2)?;
+					let (type_4, rest) = pop_category_1(stack_3)?;
+					can_safely_push_list(
+						environment,
+						rest,
+						[type_2.clone(), type_1.clone(), type_4, type_3, type_2, type_1]
+					)
+				};
+
+				// dup2_x2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     popCategory2(InputOperandStack, Type1, Stack1),
+				//     popCategory1(Stack1, Type2, Stack2),
+				//     popCategory1(Stack2, Type3, Rest),
+				//     canSafelyPushList(Environment, Rest,
+				//                       [Type1, Type3, Type2, Type1],
+				//                       OutputOperandStack).
+				let form_2 = || {
+					let (type_1, stack_1) = pop_category_2(input_operand_stack.clone())?;
+					let (type_2, stack_2) = pop_category_1(stack_1)?;
+					let (type_3, rest) = pop_category_1(stack_2)?;
+					can_safely_push_list(
+						environment,
+						rest,
+						[type_1.clone(), type_3, type_2, type_1]
+					)
+				};
+
+				// dup2_x2Form3IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     popCategory1(InputOperandStack, Type1, Stack1),
+				//     popCategory1(Stack1, Type2, Stack2),
+				//     popCategory2(Stack2, Type3, Rest),
+				//     canSafelyPushList(Environment, Rest,
+				//                       [Type2, Type1, Type3, Type2, Type1],
+				//                       OutputOperandStack).
+				let form_3 = || {
+					let (type_1, stack_1) = pop_category_1(input_operand_stack.clone())?;
+					let (type_2, stack_2) = pop_category_1(stack_1)?;
+					let (type_3, rest) = pop_category_2(stack_2)?;
+					can_safely_push_list(
+						environment,
+						rest,
+						[type_2.clone(), type_1.clone(), type_3, type_2, type_1]
+					)
+				};
+
+				// dup2_x2Form4IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
+				//     popCategory2(InputOperandStack, Type1, Stack1),
+				//     popCategory2(Stack1, Type2, Rest),
+				//     canSafelyPushList(Environment, Rest, [Type1, Type2, Type1],
+				//                       OutputOperandStack).
+				let form_4 = || {
+					let (type_1, stack_1) = pop_category_2(input_operand_stack.clone())?;
+					let (type_2, rest) = pop_category_2(stack_1)?;
+					can_safely_push_list(
+						environment,
+						rest,
+						[type_1.clone(), type_2, type_1]
+					)
+				};
+
+				form_1().or_else(|_| form_2()).or_else(|_| form_3()).or_else(|_| form_4())
+			}
+
+			let output_operand_stack = dup_2x2_form_is_type_safe(environment, stack_frame.operand_stack)?;
+			let next_stack_frame = Frame {
+				locals: stack_frame.locals.clone(),
+				operand_stack: output_operand_stack,
+				flag_this_uninit: stack_frame.flag_this_uninit
+			};
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
-
-		// dup2_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup2_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
-		//
-		// dup2_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup2_x2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
-		//
-		// dup2_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup2_x2Form3IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
-		//
-		// dup2_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     dup2_x2Form4IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
-
-		// dup2_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     popCategory1(InputOperandStack, Type1, Stack1),
-		//     popCategory1(Stack1, Type2, Stack2),
-		//     popCategory1(Stack2, Type3, Stack3),
-		//     popCategory1(Stack3, Type4, Rest),
-		//     canSafelyPushList(Environment, Rest,
-		//                       [Type2, Type1, Type4, Type3, Type2, Type1],
-		//                       OutputOperandStack).
-
-		// dup2_x2Form2IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     popCategory2(InputOperandStack, Type1, Stack1),
-		//     popCategory1(Stack1, Type2, Stack2),
-		//     popCategory1(Stack2, Type3, Rest),
-		//     canSafelyPushList(Environment, Rest,
-		//                       [Type1, Type3, Type2, Type1],
-		//                       OutputOperandStack).
-
-		// dup2_x2Form3IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     popCategory1(InputOperandStack, Type1, Stack1),
-		//     popCategory1(Stack1, Type2, Stack2),
-		//     popCategory2(Stack2, Type3, Rest),
-		//     canSafelyPushList(Environment, Rest,
-		//                       [Type2, Type1, Type3, Type2, Type1],
-		//                       OutputOperandStack).
-
-		// dup2_x2Form4IsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
-		//     popCategory2(InputOperandStack, Type1, Stack1),
-		//     popCategory2(Stack1, Type2, Rest),
-		//     canSafelyPushList(Environment, Rest, [Type1, Type2, Type1],
-		//                       OutputOperandStack).
 
 		// instructionIsTypeSafe(f2d, Environment, _Offset, StackFrame,
 		//                       NextStackFrame, ExceptionStackFrame) :-
@@ -2768,11 +2800,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		F2d => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Float],
-				&Double,
+				[Float],
+				Double,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2784,11 +2815,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		F2i => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Float],
-				&Int,
+				[Float],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2800,11 +2830,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		F2l => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Float],
-				&Long,
+				[Float],
+				Long,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2820,11 +2849,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		FAdd | FDiv | FMul | FRem | FSub => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Float, Float],
-				&Float,
+				[Float, Float],
+				Float,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2836,11 +2864,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		FALoad => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, ArrayOf(ArrayType::Other(Box::new(Float)))],
-				&Float,
+				[Int, ArrayOf(ArrayType::Other(Box::new(Float)))],
+				Float,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2849,11 +2876,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     canPop(StackFrame, [float, int, arrayOf(float)], NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		FAStore => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Float, Int, ArrayOf(ArrayType::Other(Box::new(Float)))],
+			let next_stack_frame = stack_frame.can_pop(
+				[Float, Int, ArrayOf(ArrayType::Other(Box::new(Float)))],
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2866,11 +2891,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		FCmpG | FCmpL => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Float, Float],
-				&Int,
+				[Float, Float],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2883,11 +2907,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		FConst0 | FConst1 | FConst2 => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![],
-				&Float,
+				[],
+				Float,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2898,11 +2921,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		FLoad(index) => {
 			let next_stack_frame = load_is_type_safe(
 				environment,
-				index,
+				&index,
 				&Float,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2914,11 +2936,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		FNeg => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Float],
-				&Float,
+				[Float],
+				Float,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2929,11 +2950,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		FReturn => {
 			(environment.this_method_return_type()? == &Float).fail("")?;
-			let _popped_stack_frame = can_pop(
-				stack_frame,
-				&vec![Float]
-			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let _popped_stack_frame = stack_frame.can_pop([Float])?;
 			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
@@ -2942,13 +2959,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     storeIsTypeSafe(Environment, Index, float, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		FStore(index) => {
-			let next_stack_frame = store_is_type_safe(
-				environment,
-				index,
-				&Float,
-				stack_frame
-			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = stack_frame.store_is_type_safe(&index, Float)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2962,9 +2973,22 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		GetField{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			/*
+			let (field_class, field_name, field_descriptor): (ClassName, _, _) = todo!(); // CP = ...;
+			let field_type = parse_field_descriptor(&field_descriptor)?;
+			passes_protected_check(environment, &field_class, &field_name, &field_descriptor, stack_frame)?;
+
+			let loader = todo!();
+			let next_stack_frame = valid_type_transition(
+				environment,
+				[Class(field_class, loader)],
+				field_type,
+				stack_frame
+			)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+
+			 */
+			todo!()
 		},
 
 		// instructionIsTypeSafe(getstatic(CP), Environment, _Offset, StackFrame,
@@ -2975,8 +2999,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		GetStatic{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -2988,10 +3011,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		Goto(target) => {
 			target_is_type_safe(
 				environment,
-				stack_frame,
+				&stack_frame,
 				target.0.0
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
@@ -3003,11 +3025,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		I2d => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int],
-				&Double,
+				[Int],
+				Double,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3019,11 +3040,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		I2f => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int],
-				&Float,
+				[Int],
+				Float,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3035,11 +3055,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		I2l => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int],
-				&Long,
+				[Int],
+				Long,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3061,11 +3080,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		IAdd | IAnd | IDiv | IMul | IOr | IRem | IShl | IShr | IUShr | ISub | IXor => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, Int],
-				&Int,
+				[Int, Int],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3077,11 +3095,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		IALoad => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, ArrayOf(ArrayType::Other(Box::new(Int)))],
-				&Int,
+				[Int, ArrayOf(ArrayType::Other(Box::new(Int)))],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3090,11 +3107,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     canPop(StackFrame, [int, int, arrayOf(int)], NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		IAStore => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Int, Int, ArrayOf(ArrayType::Other(Box::new(Int)))]
+			let next_stack_frame = stack_frame.can_pop(
+				[Int, Int, ArrayOf(ArrayType::Other(Box::new(Int)))]
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3111,11 +3126,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		IConstM1 | IConst0 | IConst1 | IConst2 | IConst3 | IConst4 | IConst5 => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![],
-				&Int,
+				[],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		}
 
@@ -3126,12 +3140,8 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		// instructionHasEquivalentTypeRule(if_acmpne(Target), if_acmpeq(Target)).
 		IfACmpEq(target) | IfACmpNe(target) => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Reference, Reference]
-			)?;
+			let next_stack_frame = stack_frame.can_pop([Reference, Reference])?;
 			target_is_type_safe(environment, &next_stack_frame, target.0.0)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3145,13 +3155,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		// instructionHasEquivalentTypeRule(if_icmple(Target), if_icmpeq(Target)).
 		// instructionHasEquivalentTypeRule(if_icmplt(Target), if_icmpeq(Target)).
 		// instructionHasEquivalentTypeRule(if_icmpne(Target), if_icmpeq(Target)).
-		IfICmpEq(target) | IfICmpGe(target) | IfICmpGt(target) | IfICmpLe(target) | IfICmpLt(target) | IfICmpNe(target) => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Int, Int]
-			)?;
+		IfICmpEq(target) | IfICmpGe(target) | IfICmpGt(target) |
+		IfICmpLe(target) | IfICmpLt(target) | IfICmpNe(target) => {
+			let next_stack_frame = stack_frame.can_pop([Int, Int])?;
 			target_is_type_safe(environment, &next_stack_frame, target.0.0)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3165,13 +3172,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		// instructionHasEquivalentTypeRule(ifle(Target), ifeq(Target)).
 		// instructionHasEquivalentTypeRule(iflt(Target), ifeq(Target)).
 		// instructionHasEquivalentTypeRule(ifne(Target), ifeq(Target)).
-		IfEq(target) | IfGe(target) | IfGt(target) | IfLe(target) | IfLt(target) | IfNe(target) => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Int]
-			)?;
+		IfEq(target) | IfGe(target) | IfGt(target) |
+		IfLe(target) | IfLt(target) | IfNe(target) => {
+			let next_stack_frame = stack_frame.can_pop([Int])?;
 			target_is_type_safe(environment, &next_stack_frame, target.0.0)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3181,9 +3185,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     targetIsTypeSafe(Environment, NextStackFrame, Target),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		// instructionHasEquivalentTypeRule(ifnull(Target), ifnonnull(Target)).
-		IfNonNull(_) | IfNull(_) => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+		IfNonNull(target) | IfNull(target) => {
+			let next_stack_frame = stack_frame.can_pop([Reference])?;
+			target_is_type_safe(environment, &next_stack_frame, target.0.0)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3192,9 +3196,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     StackFrame = frame(Locals, _OperandStack, _Flags),
 		//     nth0(Index, Locals, int),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
-		IInc{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+		IInc{ lv_index, .. } => {
+			let index = lv_index.0;
+			(nth0(index, &stack_frame.locals)? == Int).fail("")?;
+			let next_stack_frame = stack_frame.clone();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3203,8 +3208,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     loadIsTypeSafe(Environment, Index, int, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		ILoad(index) => {
-			let next_stack_frame = load_is_type_safe(environment, index, &Int, stack_frame)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = load_is_type_safe(environment, &index, &Int, stack_frame)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3223,11 +3227,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		INeg | I2b | I2c | I2s => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int],
-				&Int,
+				[Int],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3245,11 +3248,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 			bl.is_bootstrap_loader()?;
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Class(JAVA_LANG_OBJECT.into(), bl)],
-				&Int,
+				[Class(JAVA_LANG_OBJECT.into(), bl)],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3264,8 +3266,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		InvokeDynamic{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3283,8 +3284,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     countIsValid(Count, StackFrame, TempFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		InvokeInterface{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3314,8 +3314,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                  class(MethodClassName, CurrentLoader)).
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		InvokeSpecial{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3338,8 +3337,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     passesProtectedCheck(Environment, MethodClassName, '<init>',
 		//                          Descriptor, NextStackFrame).
 		InvokeSpecial{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3380,8 +3378,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		InvokeStatic{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3402,8 +3399,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                          Descriptor, PoppedFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		InvokeVirtual{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3414,11 +3410,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		IReturn => {
 			(environment.this_method_return_type()? == &Int).fail("")?;
-			let _popped_stack_frame = can_pop(
-				stack_frame,
-				&vec![Int]
-			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let _popped_stack_frame = stack_frame.can_pop([Int])?;
 			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
@@ -3427,8 +3419,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     storeIsTypeSafe(Environment, Index, int, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		IStore(index) => {
-			let next_stack_frame = store_is_type_safe(environment, index, &Int, stack_frame)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = stack_frame.store_is_type_safe(&index, Int)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3440,11 +3431,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		L2d => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Long],
-				&Double,
+				[Long],
+				Double,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3456,11 +3446,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		L2f => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Long],
-				&Float,
+				[Long],
+				Float,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3472,11 +3461,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		L2i => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Long],
-				&Int,
+				[Long],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3495,11 +3483,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		LAdd | LAnd | LDiv | LMul | LOr | LRem | LSub | LXor => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Long, Long],
-				&Long,
+				[Long, Long],
+				Long,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3511,11 +3498,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		LALoad => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, ArrayOf(ArrayType::Other(Box::new(Long)))],
-				&Long,
+				[Int, ArrayOf(ArrayType::Other(Box::new(Long)))],
+				Long,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3524,11 +3510,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     canPop(StackFrame, [long, int, arrayOf(long)], NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		LAStore => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Long, Int, ArrayOf(ArrayType::Other(Box::new(Long)))]
+			let next_stack_frame = stack_frame.can_pop(
+				[Long, Int, ArrayOf(ArrayType::Other(Box::new(Long)))]
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3540,11 +3524,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		LCmp => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Long, Long],
-				&Int,
+				[Long, Long],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3556,11 +3539,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		LConst0 | LConst1 => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![],
-				&Long,
+				[],
+				Long,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3580,8 +3562,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		// instructionHasEquivalentTypeRule(ldc_w(CP), ldc(CP))
 		LdcInt{..} | LdcFloat{..} | LdcReferenceString{..} | LdcReferenceClass{..} | LdcReferenceMethodType{..} | LdcReferenceMethodHandle {..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3592,8 +3573,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     validTypeTransition(Environment, [], Tag, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Ldc2WDouble{..} | Ldc2WLong{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3602,8 +3582,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     loadIsTypeSafe(Environment, Index, long, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		LLoad(index) => {
-			let next_stack_frame = load_is_type_safe(environment, index, &Long, stack_frame)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = load_is_type_safe(environment, &index, &Long, stack_frame)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3615,11 +3594,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		LNeg => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Long],
-				&Long,
+				[Long],
+				Long,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3630,9 +3608,14 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     checklist(targetIsTypeSafe(Environment, BranchStackFrame), Targets),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		LookupSwitch{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
-			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+			// TODO: sort(keys, keys)
+			let targets: Vec<_> = todo!();
+			// TODO: what is the default case?
+			let branch_stack_frame = stack_frame.can_pop([Int])?;
+			for target in targets {
+				target_is_type_safe(environment, &branch_stack_frame, target)?;
+			}
+			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
 		// instructionIsTypeSafe(lreturn, Environment, _Offset, StackFrame,
@@ -3642,8 +3625,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		LReturn => {
 			(environment.this_method_return_type()? == &Long).fail("")?;
-			let _popped_stack_frame = can_pop(stack_frame, &vec![Long])?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let _popped_stack_frame = stack_frame.can_pop([Long])?;
 			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
@@ -3657,11 +3639,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		LShl | LShr | LUShr => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, Long],
-				&Long,
+				[Int, Long],
+				Long,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3670,13 +3651,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     storeIsTypeSafe(Environment, Index, long, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		LStore(index) => {
-			let next_stack_frame = store_is_type_safe(
-				environment,
-				index,
-				&Long,
-				stack_frame
-			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = stack_frame.store_is_type_safe(&index, Long)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3686,8 +3661,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		// instructionHasEquivalentTypeRule(monitorexit, monitorenter).
 		MonitorEnter | MonitorExit => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = stack_frame.can_pop([Reference])?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3703,17 +3677,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		MultiANewArray{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
-
-		// classDimension(arrayOf(X), Dimension) :-
-		//     classDimension(X, Dimension1),
-		//     Dimension is Dimension1 + 1.
-		//
-		// classDimension(_, Dimension) :-
-		//     Dimension = 0.
 
 		// instructionIsTypeSafe(new(CP), Environment, Offset, StackFrame,
 		//                       NextStackFrame, ExceptionStackFrame) :-
@@ -3727,8 +3693,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		New{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3739,8 +3704,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		NewArray{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3757,8 +3721,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//                       StackFrame, ExceptionStackFrame) :-
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Nop => {
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
-			Ok((FrameT::Frame(stack_frame.clone()), exception_stack_frame))
+			Ok((FrameT::Frame(stack_frame), exception_stack_frame))
 		},
 
 		// instructionIsTypeSafe(pop, _Environment, _Offset, StackFrame,
@@ -3769,18 +3732,17 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(Locals, Rest, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Pop => {
-			if let (Some(type_), rest) = head_rest(&stack_frame.operand_stack) {
-				(type_ != &Top).fail("")?;
-				size_of(type_, 1)?;
-				let next_stack_frame = Frame {
-					locals: stack_frame.locals.clone(),
-					operand_stack: rest,
-					flag_this_uninit: stack_frame.flag_this_uninit
-				};
-				let exception_stack_frame = stack_frame.exception_stack_frame()?;
-				Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
-			} else {
-				fail("")
+			let mut operand_stack = stack_frame.operand_stack;
+			match operand_stack.pop() {
+				Some(Top) => fail(""),
+				Some(type_) if type_.size() == TypeSize::OneWord => {
+					let next_stack_frame = Frame {
+						operand_stack,
+						..stack_frame
+					};
+					Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+				},
+				_ => fail(""),
 			}
 		},
 
@@ -3791,11 +3753,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(Locals, OutputOperandStack, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Pop2 => {
-			fn pop2_some_form_is_type_safe(input_operand_stack: &Vec<VerificationType>) -> Result<Vec<VerificationType>> {
-				let mut iter = input_operand_stack.iter();
-
-				let type_1 = iter.next();
-				let type_2 = iter.next();
+			fn pop2_some_form_is_type_safe(mut stack: Vec<VerificationType>) -> Result<Vec<VerificationType>> {
+				let type_1 = stack.pop();
+				let type_2 = stack.pop();
 				if let (Some(type_1), Some(type_2)) = (type_1, type_2) {
 					// pop2SomeFormIsTypeSafe(InputOperandStack, OutputOperandStack) :-
 					//     pop2Form1IsTypeSafe(InputOperandStack, OutputOperandStack).
@@ -3806,19 +3766,13 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 					// pop2Form1IsTypeSafe([Type1, Type2 | Rest], Rest) :-
 					//     sizeOf(Type1, 1),
 					//     sizeOf(Type2, 1).
-					let pop2_form1_is_type_safe = {
-						size_of(type_1, 1).is_ok() &&
-						size_of(type_2, 1).is_ok()
-					};
+					let pop2_form1_is_type_safe = type_1.size() == TypeSize::OneWord && type_2.size() == TypeSize::OneWord;
 
 					// pop2Form2IsTypeSafe([top, Type | Rest], Rest) :- sizeOf(Type, 2).
-					let pop2_form2_is_type_safe = {
-						type_1 == &Top &&
-						size_of(type_2, 2).is_ok()
-					};
+					let pop2_form2_is_type_safe = type_1 == Top && type_2.size() == TypeSize::TwoWord;
 
 					if pop2_form1_is_type_safe || pop2_form2_is_type_safe {
-						Ok(iter.cloned().collect())
+						Ok(stack)
 					} else {
 						fail("")
 					}
@@ -3828,11 +3782,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 			}
 
 			let next_stack_frame = Frame {
-				locals: stack_frame.locals.clone(),
-				operand_stack: pop2_some_form_is_type_safe(&stack_frame.operand_stack)?,
-				flag_this_uninit: stack_frame.flag_this_uninit,
+				operand_stack: pop2_some_form_is_type_safe(stack_frame.operand_stack)?,
+				..stack_frame
 			};
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3848,8 +3800,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//            NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		PutField{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3860,8 +3811,7 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     canPop(StackFrame, [FieldType], NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		PutStatic{..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3876,7 +3826,6 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 			if stack_frame.flag_this_uninit {
 				fail("")
 			} else {
-				let exception_stack_frame = stack_frame.exception_stack_frame()?;
 				Ok((FrameT::AfterGoto, exception_stack_frame))
 			}
 		},
@@ -3889,11 +3838,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		SALoad => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![Int, ArrayOf(ArrayType::Short)],
-				&Int,
+				[Int, ArrayOf(ArrayType::Short)],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3902,11 +3850,9 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     canPop(StackFrame, [int, int, arrayOf(short)], NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		SAStore => {
-			let next_stack_frame = can_pop(
-				stack_frame,
-				&vec![Int, Int, ArrayOf(ArrayType::Short)],
+			let next_stack_frame = stack_frame.can_pop(
+				[Int, Int, ArrayOf(ArrayType::Short)],
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3918,11 +3864,10 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		SIPush(..) | BIPush(..) => {
 			let next_stack_frame = valid_type_transition(
 				environment,
-				&vec![],
-				&Int,
+				[],
+				Int,
 				stack_frame
 			)?;
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3934,8 +3879,27 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     NextStackFrame = frame(_Locals, [Type2, Type1 | Rest], _Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Swap => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
+			let mut operand_stack = stack_frame.operand_stack;
+
+			let type_1 = match operand_stack.pop() {
+				Some(x) => x,
+				_ => return fail(""),
+			};
+			let type_2 = match operand_stack.pop() {
+				Some(x) => x,
+				_ => return fail(""),
+			};
+
+			size_of(&type_1, 1)?;
+			size_of(&type_2, 1)?;
+
+			operand_stack.push(type_1);
+			operand_stack.push(type_2);
+
+			let next_stack_frame = Frame {
+				operand_stack,
+				..stack_frame
+			};
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3946,9 +3910,14 @@ fn instruction_is_type_safe(instruction: &Opcode, environment: &Environment, off
 		//     checklist(targetIsTypeSafe(Environment, BranchStackFrame), Targets),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		TableSwitch {..} => {
-			todo!();
-			let exception_stack_frame = stack_frame.exception_stack_frame()?;
-			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+			// TODO: sort(keys, keys)
+			let targets: Vec<_> = todo!();
+			// TODO: default case?
+			let branch_stack_frame = stack_frame.can_pop([Int])?;
+			for target in targets {
+				target_is_type_safe(environment, &branch_stack_frame, target)?;
+			}
+			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 	}
 }
