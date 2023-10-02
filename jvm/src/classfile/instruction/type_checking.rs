@@ -1,12 +1,15 @@
-use crate::classfile::{ClassInfo, DoubleInfo, FieldRefInfo, FloatInfo, IntegerInfo, InterfaceMethodRefInfo, InvokeDynamicInfo, LongInfo, MethodHandleInfo, MethodRefInfo, MethodTypeInfo, StringInfo};
+use crate::classfile::cp::{FieldRefInfo, InterfaceMethodRefInfo, InvokeDynamicInfo, MethodHandleInfo, MethodRefInfo};
+use crate::classfile::descriptor::MethodDescriptor;
 use crate::classfile::instruction::{BranchTarget, ConditionalBranch, LvIndex, UnconditionalBranch};
+use crate::classfile::name::ClassName;
+use crate::classfile::verifier::VerificationType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArrayType {}
 
-#[warn(missing_docs)]
+//#[warn(missing_docs)]
 /// An opcode of the JVM.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Opcode {
 	/// Load `reference` from array.
 	///
@@ -104,7 +107,7 @@ pub enum Opcode {
 	///
 	/// # Run-time Exceptions
 	/// - If `count` is less than zero, throw a `java.lang.NegativeArraySizeException`.
-	ANewArray { class: ClassInfo },
+	ANewArray(VerificationType),
 	/// Return `reference` from method.
 	///
 	/// # Operand Stack
@@ -174,7 +177,7 @@ pub enum Opcode {
 	/// ```
 	///
 	/// # Description
-	/// The `objectref` must be of type reference and must refer to an object that is an instance of class `java.lang.Throwable` or of a subclass of
+	/// The `objectref` must be of type reference and must refer to an object that is an instance of class `java/lang/Throwable` or of a subclass of
 	/// `java/lang/Throwable`. It is popped from the operand stack. The `objectref` is then thrown by searching the current method for the first exception
 	/// handler that matches the class of `objectref`, as given by the algorithm in §2.10.
 	///
@@ -306,7 +309,38 @@ pub enum Opcode {
 	/// - If `arrayref` is `null`, throw a `java.lang.NullPointerException`.
 	/// - If `index` is not within the bounds of the array referenced by `arrayref`, throw an `java.lang.ArrayIndexOutOfBoundsException`.
 	CAStore,
-	CheckCast { class: ClassInfo },
+	/// Check whether object is of given type
+	/// # Operand Stack
+	/// ```
+	/// ..., objectref: reference ->
+	/// ..., objectref
+	/// ```
+	/// # Description
+	/// The `objectref` must be of type `reference`. The unsigned `indexbyte1` and `indexbyte2` are used to construct an index into the run-time constant pool
+	/// of the current class (§2.6), where the value of the index is `(indexbyte1 << 8) | indexbyte2`. The run-time constant pool item at the index must be a
+	/// symbolic reference to a class, array, or interface type.
+	///
+	/// If `objectref` is `null`, then the operand stack is unchanged.
+	///
+	/// Otherwise, the named class, array, or interface type is resolved (§5.4.3.1). If `objectref` can be cast to the resolved class, array, or interface type,
+	/// the operand stack is unchanged; otherwise, the `checkcast` instruction throws a `java/lang/ClassCastException`.
+	///
+	/// The following rules are used to determine whether an `objectref` that is not `null` can be cast to the resolved type: if `S` is the class of the object
+	/// referred to by `objectref` and `T` is the resolved class, array, or interface type, `checkcast` determines whether `objectref` can be cast to type `T`
+	/// as follows:
+	/// - If `S` is an ordinary (nonarray) class, then:
+	///   - If `T` is a class type, then `S` must be the same class as `T`, or `S` must be a subclass of `T`;
+	///   - If `T` is an interface type, then `S` must implement interface `T`.
+	/// - If `S` is an interface type, then:
+	///   - If `T` is a class type, then `T` must be `java/lang/Object`.
+	///   - If `T` is an interface type, then `T` must be the same interface as `S` or a superinterface of `S`.
+	/// - If `S` is a class representing the array type `SC[]`, that is, an array of components of type `SC`, then:
+	///   - If `T` is a class type, then `T` must be `java/lang/Object`.
+	///   - If `T` is an interface type, then `T` must be one of the interfaces implemented by arrays (JLS §4.10.3).
+	///   - If `T` is an array type `TC[]`, that is, an array of components of type `TC`, then one of the following must be true:
+	///     - `TC` and `SC` are the same primitive type.
+	///     - `TC` and `SC` are reference types, and type `SC` can be cast to `TC` by recursive application of these rules.
+	CheckCast(VerificationType),
 	D2f,
 	D2i,
 	D2l,
@@ -350,8 +384,8 @@ pub enum Opcode {
 	FReturn,
 	FStore(LvIndex),
 	FSub,
-	GetField { field_ref: FieldRefInfo },
-	GetStatic { field_ref: FieldRefInfo },
+	GetField(FieldRefInfo),
+	GetStatic(FieldRefInfo),
 	/// Branch always.
 	///
 	/// # Format
@@ -426,12 +460,12 @@ pub enum Opcode {
 	ImpDep1, ImpDep2,
 	IMul,
 	INeg,
-	InstanceOf { class: ClassInfo },
+	InstanceOf(VerificationType),
 	InvokeDynamic { call_site: InvokeDynamicInfo, zero1: u8, zero2: u8 },
 	InvokeInterface { method_ref: InterfaceMethodRefInfo, count: u8, zero: u8 },
-	InvokeSpecial { method_ref: MethodRefInfo },
-	InvokeStatic { method_ref: MethodRefInfo },
-	InvokeVirtual { method_ref: MethodRefInfo },
+	InvokeSpecial(MethodRefInfo),
+	InvokeStatic(MethodRefInfo),
+	InvokeVirtual(MethodRefInfo),
 	IOr,
 	IRem,
 	IReturn,
@@ -509,9 +543,9 @@ pub enum Opcode {
 	/// See [Opcode::LdcInt].
 	LdcReferenceString { string: StringInfo },
 	/// See [Opcode::LdcInt].
-	LdcReferenceClass { class: ClassInfo },
+	LdcReferenceClass(ClassName),
 	/// See [Opcode::LdcInt].
-	LdcReferenceMethodType { method_type: MethodTypeInfo },
+	LdcReferenceMethodType { method_type: MethodDescriptor },
 	/// See [Opcode::LdcInt].
 	LdcReferenceMethodHandle { method_handle: MethodHandleInfo },
 	/// Push long or double from run-time constant pool (wide index).
@@ -639,8 +673,8 @@ pub enum Opcode {
 	/// created and must be non-negative. The `count1` is the desired length in the first dimension, `count2` in the second, etc.
 	///
 	/// ...; todo: fill in
-	MultiANewArray { class: ClassInfo, dimensions: u8 },
-	New { class: ClassInfo },
+	MultiANewArray(VerificationType, u8),
+	New(VerificationType),
 	NewArray { a_type: ArrayType },
 	/// Do nothing.
 	///
@@ -652,8 +686,8 @@ pub enum Opcode {
 	Nop,
 	Pop,
 	Pop2,
-	PutField { field_ref: FieldRefInfo },
-	PutStatic { field_ref: FieldRefInfo },
+	PutField(FieldRefInfo),
+	PutStatic(FieldRefInfo),
 	Return,
 	SALoad,
 	SAStore,

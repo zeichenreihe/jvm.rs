@@ -7,6 +7,9 @@
     crate-type = [ 'cdylib' ]
 
 [dependencies]
+    # TODO: split up into two crates!
+    #class-file = { path = "../class-file" }
+
     #zerocopy = '0.7.0-alpha.4'
     #classfile-parser = '0.3.6'
     zip = "0.6.0"

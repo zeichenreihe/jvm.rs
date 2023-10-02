@@ -3,10 +3,9 @@ use std::mem;
 use std::rc::Rc;
 use crate::class_instance::Class;
 use crate::class_loader::ClassLoader;
-use crate::classfile::{ClassInfo, ConstantPoolElement, FieldRefInfo, MethodRefInfo};
 use crate::code::Code;
 use crate::errors::{OutOfBoundsError, RuntimeError};
-use crate::opcodes::Opcode;
+use crate::classfile::instruction::Opcode;
 
 #[derive(Debug, Clone, Copy)]
 pub enum StackFrameLvType {
@@ -45,7 +44,7 @@ struct Vm {
 impl Vm {
 	fn new() -> Vm {
 		Vm {
-			loader: ClassLoader::new(),
+			loader: ClassLoader::new(vec![]),
 			stack: VmStack { frames: Vec::new() }
 		}
 	}
@@ -111,11 +110,10 @@ impl VmStackFrame {
 			.ok_or(OutOfBoundsError)
 	}
 
-	fn next_isn(&mut self) -> Result<Opcode, OutOfBoundsError> {
+	fn next_isn(&mut self) -> Result<&Opcode, OutOfBoundsError> {
 		let opcode = self.code.code
 			.get(self.program_counter)
-			.ok_or(OutOfBoundsError)?
-			.clone();
+			.ok_or(OutOfBoundsError)?;
 		self.program_counter += 1;
 		Ok(opcode)
 	}
@@ -127,199 +125,8 @@ impl VmStackFrame {
 
 			println!("opcode: {opcode:?}");
 
-			// TODO: make this actually allocate memory
-			match opcode {
-				Opcode::IConst0 => self.push_stack(StackFrameLvType::Int(0))?,
-				Opcode::IConst1 => self.push_stack(StackFrameLvType::Int(1))?,
-				Opcode::IConst2 => self.push_stack(StackFrameLvType::Int(2))?,
-				Opcode::IConst3 => self.push_stack(StackFrameLvType::Int(3))?,
-				Opcode::IConst4 => self.push_stack(StackFrameLvType::Int(4))?,
-				Opcode::IConst5 => self.push_stack(StackFrameLvType::Int(5))?,
-				Opcode::IConstM1 => self.push_stack(StackFrameLvType::Int(-1))?,
-				Opcode::IAdd => {
-					let a = self.pop_stack()?.try_as_int()?;
-					let b = self.pop_stack()?.try_as_int()?;
-					self.push_stack(StackFrameLvType::Int(a + b))?
-				},
+			// TODO: make this actually work!
 
-				Opcode::IStore1 => {
-					let i = self.pop_stack()?;
-					// TODO: verify: int
-					self.store_lv(1, i)?;
-				},
-				Opcode::ILoad1 => {
-					let i = self.load_lv(1)?;
-					// TODO: verify: int
-					self.push_stack(i)?;
-				},
-
-				Opcode::ALoad0 => {
-					let a = self.load_lv(0)?;
-					// TODO: verify: reference
-					self.push_stack(a)?;
-				},
-
-				Opcode::ALoad1 => {
-					let a = self.load_lv(1)?;
-					// TODO: verify: reference
-					self.push_stack(a)?;
-				},
-				Opcode::ALoad2 => {
-					let a = self.load_lv(2)?;
-					// TODO: verify: reference
-					self.push_stack(a)?;
-				},
-				Opcode::ALoad3 => {
-					let a = self.load_lv(3)?;
-					// TODO: verify: reference
-					self.push_stack(a)?;
-				},
-
-				Opcode::AStore1 => {
-					let a = self.pop_stack()?;
-					// TODO: verify: reference
-					self.store_lv(1, a)?;
-				},
-				Opcode::AStore2 => {
-					let a = self.pop_stack()?;
-					// TODO: verify: reference
-					self.store_lv(2, a)?;
-				},
-				Opcode::AStore3 => {
-					let a = self.pop_stack()?;
-					// TODO: verify: reference
-					self.store_lv(3, a)?;
-				}
-
-
-				Opcode::IfICmpGe { branch_target } => {
-					let value2 = self.pop_stack()?.try_as_int()?;
-					let value1 = self.pop_stack()?.try_as_int()?;
-					if value1 >= value2 {
-						let old_pc = self.program_counter;
-						self.program_counter = branch_target;
-						println!("jumped from {} to {}", old_pc, self.program_counter);
-					}
-				},
-				Opcode::GetStatic { field_ref } => {
-					let class = self.loader.get(&field_ref.class)?;
-
-					let field = class.static_fields.get(&field_ref.name_and_type).unwrap();
-					// TODO: unwrap, also doesn't impl the whole field resolution procedure
-
-					let to_stack = field.load(class)?;
-
-					println!("{} {} {} => {:?}", &field_ref.class, &field_ref.name_and_type.name, &field_ref.name_and_type.descriptor, &to_stack);
-
-					self.push_stack(to_stack)?;
-				},
-				Opcode::New { class } => {
-					println!("{class:?}");
-					self.push_stack(StackFrameLvType::Reference(234))?;
-				},
-				Opcode::NewArray { a_type } => {
-					let _count = self.pop_stack()?;
-					println!("{a_type:?}");
-					self.push_stack(StackFrameLvType::Reference(2333334))?;
-				},
-				Opcode::BIPush { byte } => {
-					self.push_stack(StackFrameLvType::Int(byte as i32))?;
-				}
-				Opcode::CAStore => {
-					let value = self.pop_stack()?;
-					let index = self.pop_stack()?;
-					let arrayref = self.pop_stack()?;
-					println!("storing: {value:?} at {index:?}");
-				}
-				Opcode::Dup => {
-					let value = self.pop_stack()?;
-					self.push_stack(value)?;
-					self.push_stack(value)?;
-				},
-				Opcode::InvokeSpecial { method_ref } => {
-					let class = method_ref.class;
-					let name = method_ref.name_and_type.name;
-					let desc = method_ref.name_and_type.descriptor;
-
-					println!("{class}, {name}, {desc}");
-
-					let desc = desc.to_string();
-					if desc == String::from("()V") {
-						self.pop_stack()?;
-					}
-					if desc == "([C)V" {
-						self.pop_stack()?;
-						self.pop_stack()?;
-					}
-				},
-				Opcode::LdcReferenceString { string } => {
-					let item = string;
-					println!("{item:?}");
-					self.push_stack(StackFrameLvType::Reference(3444))?;
-				},
-				Opcode::InvokeVirtual { method_ref } => {
-					let class = method_ref.class;
-					let name = method_ref.name_and_type.name;
-					let desc = method_ref.name_and_type.descriptor;
-
-					println!("{class}, {name}, {desc}");
-
-					let class = class.to_string();
-					let name = name.to_string();
-					let desc = desc.to_string();
-
-					if desc == "(Ljava/lang/String;)Ljava/lang/StringBuilder;" {
-						let _string = self.pop_stack();
-					}
-					if desc == "(Ljava/lang/String;)V" {
-						let _string = self.pop_stack()?;
-					}
-					if desc == "(I)Ljava/lang/StringBuilder;" {
-						let _int = self.pop_stack()?;
-					}
-					if desc == "(I)V" {
-						let _int = self.pop_stack()?;
-					}
-
-					let _this = self.pop_stack()?;
-
-					if desc == "(I)Ljava/lang/StringBuilder;" {
-						self.push_stack(StackFrameLvType::Reference(290598025))?;
-					}
-					if desc == "()Ljava/lang/String;" {
-						self.push_stack(StackFrameLvType::Reference(890225890))?;
-					}
-					if desc == "(Ljava/lang/String;)Ljava/lang/StringBuilder;" {
-						self.push_stack(StackFrameLvType::Reference(290598025))?;
-					}
-					if desc == "()I" {
-						self.push_stack(StackFrameLvType::Int(666))?;
-					}
-				},
-				Opcode::InvokeStatic { method_ref } => {
-					let class = method_ref.class;
-					let name = method_ref.name_and_type.name;
-					let desc = method_ref.name_and_type.descriptor;
-
-					println!("{class}, {name}, {desc}");
-
-					let desc = desc.to_string();
-					if desc == "([Ljava/lang/Object;)Ljava/lang/String;" {
-						let _value = self.pop_stack()?;
-						self.push_stack(StackFrameLvType::Reference(2235890))?;
-					}
-					if desc == "(Ljava/lang/Object;)I" {
-						let _value = self.pop_stack()?;
-						self.push_stack(StackFrameLvType::Int(6666))?;
-					}
-				},
-				Opcode::Return => {
-					println!("done.");
-					break;
-				},
-				Opcode::Nop => {},
-				_ => todo!("opcode {opcode:?} not yet implemented"),
-			}
 
 			println!("{self}");
 
@@ -342,6 +149,7 @@ mod testing {
 	use zip::ZipArchive;
 	use crate::class_loader::{ClassesSource, ClassLoader};
 	use crate::classfile::ClassInfo;
+	use crate::classfile::name::ClassName;
 	use crate::executor::{StackFrameLvType};
 	use super::VmStackFrame;
 
@@ -401,27 +209,20 @@ mod testing {
 		let rt = File::open("/usr/lib/jvm/java-8-openjdk/jre/lib/rt.jar").unwrap();
 		let mut rt = ZipArchive::new(BufReader::new(rt)).unwrap();
 
-		let mut loader = ClassLoader::new();
-		loader.sources.push(
+		let mut loader = ClassLoader::new(vec![
 			ClassesSource::Bytes {
-				name: String::from("java/lang/Object"),
+				name: ClassName::from(b"java/lang/Object"),
 				bytes: read_as_vec(rt.by_name("java/lang/Object.class").unwrap()),
 			},
-		);
-
-		loader.sources.push(
 			ClassesSource::Bytes {
-				name: String::from("java/lang/System"),
+				name: ClassName::from(b"java/lang/System"),
 				bytes: read_as_vec(rt.by_name("java/lang/System.class").unwrap())
 			},
-		);
-
-		loader.sources.push(
 			ClassesSource::Bytes {
-				name: String::from("Test"),
+				name: ClassName::from(b"Test"),
 				bytes: include_bytes!("../../java_example_classfiles/Test.class").to_vec(),
 			},
-		);
+		]);
 
 		let class = loader.get(&ClassInfo::from("Test")).unwrap();
 
@@ -462,27 +263,20 @@ mod testing {
 		let rt = File::open("/usr/lib/jvm/java-8-openjdk/jre/lib/rt.jar").unwrap();
 		let mut rt = ZipArchive::new(BufReader::new(rt)).unwrap();
 
-		let mut loader = ClassLoader::new();
-		loader.sources.push(
+		let mut loader = ClassLoader::new(vec![
 			ClassesSource::Bytes {
-				name: String::from("java/lang/Object"),
+				name: ClassName::from(b"java/lang/Object"),
 				bytes: read_as_vec(rt.by_name("java/lang/Object.class").unwrap()),
 			},
-		);
-
-		loader.sources.push(
 			ClassesSource::Bytes {
-				name: String::from("java/lang/System"),
+				name: ClassName::from(b"java/lang/System"),
 				bytes: read_as_vec(rt.by_name("java/lang/System.class").unwrap())
 			},
-		);
-
-		loader.sources.push(
 			ClassesSource::Bytes {
-				name: String::from("Test2"),
+				name: ClassName::from(b"Test2"),
 				bytes: include_bytes!("../../java_example_classfiles/Test2.class").to_vec(),
 			},
-		);
+		]);
 
 		dbg!(loader.get(&ClassInfo::from("java/lang/System"))).unwrap();
 

@@ -1,25 +1,33 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::io::Read;
 use itertools::{Either, Itertools};
 
 use crate::errors::ClassFileParseError;
 
-mod attribute;
-pub use attribute::*;
-
 mod verifier;
 
-mod constant_pool;
-pub use constant_pool::*;
 
 pub mod instruction;
+
+pub mod name;
+pub mod descriptor;
+pub mod access;
+
+pub mod cp;
+
+use crate::classfile::access::{ClassInfoAccess, FieldInfoAccess, MethodInfoAccess};
+use crate::classfile::cp::attribute::{AttributeInfo, CodeAttribute, ConstantValueAttribute};
+use crate::classfile::cp::Pool;
+use crate::classfile::descriptor::{FieldDescriptor, MethodDescriptor};
+use crate::classfile::name::{ClassName, FieldName, MethodName};
+
 
 macro_rules! gen_parse_u_int {
 	($name:tt, $usize_parse_name:tt, $n:literal, $t:ty) => {
 		#[inline]
-		fn $name<R: Read>(reader: &mut R) -> Result<$t, std::io::Error> {
+		fn $name(&mut self) -> Result<$t, std::io::Error> {
 			let mut buf = [0u8; $n];
-			let length = reader.read(&mut buf)?;
+			let length = self.read(&mut buf)?;
 			if length == $n {
 				Ok(<$t>::from_be_bytes(buf))
 			} else {
@@ -27,103 +35,59 @@ macro_rules! gen_parse_u_int {
 			}
 		}
 		#[inline]
-		fn $usize_parse_name<R: Read>(reader: &mut R) -> Result<usize, std::io::Error> {
-			Ok($name(reader)? as usize)
+		fn $usize_parse_name(&mut self) -> Result<usize, std::io::Error> {
+			Ok(self.$name()? as usize)
 		}
 	}
 }
-gen_parse_u_int!(parse_u1, parse_u1_as_usize, 1, u8);
-gen_parse_u_int!(parse_u2, parse_u2_as_usize, 2, u16);
-gen_parse_u_int!(parse_u4, parse_u4_as_usize, 4, u32);
 
-/// First calls the `size` parameter to get the length of the data, then calls `element` so often to read the data, returning the data then. The argument
-/// `reader` is given to both closures.
-#[inline]
-fn parse_vec<T, R: Read, E: From<E1>, SIZE, ELEMENT, E1>(reader: &mut R, size: SIZE, element: ELEMENT) -> Result<Vec<T>, E>
+trait MyRead: Read {
+	fn read_u1(&mut self) -> Result<u8, std::io::Error>;
+	fn read_u2(&mut self) -> Result<u16, std::io::Error>;
+	fn read_u4(&mut self) -> Result<u32, std::io::Error>;
+	fn read_u1_as_usize(&mut self) -> Result<usize, std::io::Error>;
+	fn read_u2_as_usize(&mut self) -> Result<usize, std::io::Error>;
+	fn read_u4_as_usize(&mut self) -> Result<usize, std::io::Error>;
+	/// First calls the `size` parameter to get the length of the data, then calls `element` so often to read the data, returning the data then. The
+	/// argument `self` is given to both closures.
+	#[inline]
+	fn read_vec<T, E: From<E1>, SIZE, ELEMENT, E1>(&mut self, size: SIZE, element: ELEMENT) -> Result<Vec<T>, E>
 	where
-		SIZE: FnOnce(&mut R) -> Result<usize, E1>,
-		ELEMENT: Fn(&mut R) -> Result<T, E>
-{
-	let count = size(reader)?;
-	let mut vec = Vec::with_capacity(count);
-	for _ in 0..count {
-		vec.push(element(reader)?);
-	}
-	Ok(vec)
-}
-
-#[derive(Clone, PartialEq)]
-pub struct FieldInfoAccess {
-	pub is_public: bool,
-	pub is_private: bool,
-	pub is_protected: bool,
-	pub is_static: bool,
-	pub is_final: bool,
-	pub is_volatile: bool,
-	pub is_transient: bool,
-	pub is_synthetic: bool,
-	pub is_enum: bool,
-}
-
-impl FieldInfoAccess {
-	fn parse(access_flags: u16) -> Result<Self, ClassFileParseError> {
-		let is_public       = access_flags & 0x0001 != 0;
-		let is_private      = access_flags & 0x0002 != 0;
-		let is_protected    = access_flags & 0x0004 != 0;
-		let is_static       = access_flags & 0x0008 != 0;
-		let is_final        = access_flags & 0x0010 != 0;
-		let is_volatile     = access_flags & 0x0040 != 0;
-		let is_transient    = access_flags & 0x0080 != 0;
-		let is_synthetic    = access_flags & 0x1000 != 0;
-		let is_enum         = access_flags & 0x4000 != 0;
-		// other bits: reserved for future use
-
-		// at most one of: is_public, is_private, is_protected
-		// at most one of: is_final, is_volatile
-
-		let is_interface_field = false;
-		if is_interface_field {
-			// must have: is_public, is_static, is_final
-			// must not have: is_private, is_protected, is_volatile, is_transient, is_synthetic, is_enum
+		SIZE: FnOnce(&mut Self) -> Result<usize, E1>,
+		ELEMENT: Fn(&mut Self) -> Result<T, E>
+	{
+		let count = size(self)?;
+		let mut vec = Vec::with_capacity(count);
+		for _ in 0..count {
+			vec.push(element(self)?);
 		}
-
-		Ok(FieldInfoAccess {
-			is_public, is_private, is_protected, is_static, is_final, is_volatile, is_transient, is_synthetic, is_enum,
-		})
+		Ok(vec)
 	}
 }
-
-impl Debug for FieldInfoAccess {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.write_str("FieldInfoAccess { ")?;
-		if self.is_public    { f.write_str("public ")?; }
-		if self.is_private   { f.write_str("private ")?; }
-		if self.is_protected { f.write_str("protected ")?; }
-		if self.is_static    { f.write_str("static ")?; }
-		if self.is_final     { f.write_str("final ")?; }
-		if self.is_volatile  { f.write_str("volatile ")?; }
-		if self.is_transient { f.write_str("transient ")?; }
-		if self.is_synthetic { f.write_str("synthetic ")?; }
-		if self.is_enum      { f.write_str("enum ")?; }
-		f.write_str("}")
-	}
+impl<T: Read> MyRead for T {
+	gen_parse_u_int!(read_u1, read_u1_as_usize, 1, u8);
+	gen_parse_u_int!(read_u2, read_u2_as_usize, 2, u16);
+	gen_parse_u_int!(read_u4, read_u4_as_usize, 4, u32);
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldInfo { // 4.5
 	pub access_flags: FieldInfoAccess,
-	pub name: Utf8Info,
-	pub descriptor: Utf8Info,
+	pub name: FieldName,
+	pub descriptor: FieldDescriptor,
 	pub attributes: Vec<AttributeInfo>,
 	pub constant_value: Option<ConstantValueAttribute>,
 }
 
 impl FieldInfo {
-	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
-		let access_flags = FieldInfoAccess::parse(parse_u2(reader)?)?;
-		let name = constant_pool.parse_index(reader)?;
-		let descriptor = constant_pool.parse_index(reader)?;
-		let attributes = parse_vec(reader, parse_u2_as_usize, |r| AttributeInfo::parse(r, constant_pool))?;
+	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self, ClassFileParseError> {
+		let access_flags = FieldInfoAccess::parse(reader.read_u2()?)?;
+		let name = pool.get(reader.read_u2_as_usize()?)?;
+		let descriptor = pool.get(reader.read_u2_as_usize()?)?;
+		let attributes = reader.read_vec(
+			|r| r.read_u2_as_usize(),
+			|r| AttributeInfo::parse(r, pool)
+		)?;
 
 		let (constant_values, attributes): (Vec<ConstantValueAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
 			.partition_map(|attribute| match attribute {
@@ -138,102 +102,23 @@ impl FieldInfo {
 	}
 }
 
-#[derive(Clone, PartialEq)]
-pub struct MethodInfoAccess {
-	pub is_public: bool,
-	pub is_private: bool,
-	pub is_protected: bool,
-	pub is_static: bool,
-	pub is_final: bool,
-	pub is_synchronised: bool,
-	pub is_bridge: bool,
-	pub is_varargs: bool,
-	pub is_native: bool,
-	pub is_abstract: bool,
-	pub is_strict: bool,
-	pub is_synthetic: bool,
-}
-
-impl MethodInfoAccess {
-	fn parse(access_flags: u16) -> Result<Self, ClassFileParseError> {
-		let is_public       = access_flags & 0x0001 != 0;
-		let is_private      = access_flags & 0x0002 != 0;
-		let is_protected    = access_flags & 0x0004 != 0;
-		let is_static       = access_flags & 0x0008 != 0;
-		let is_final        = access_flags & 0x0010 != 0;
-		let is_synchronised = access_flags & 0x0020 != 0;
-		let is_bridge       = access_flags & 0x0040 != 0;
-		let is_varargs      = access_flags & 0x0080 != 0;
-		let is_native       = access_flags & 0x0100 != 0;
-		let is_abstract     = access_flags & 0x0400 != 0;
-		let is_strict       = access_flags & 0x0800 != 0;
-		let is_synthetic    = access_flags & 0x1000 != 0;
-		// other bits: reserved for future use
-
-		// at most one of: is_public, is_private, is_protected!
-
-		if is_abstract {
-			// must not have: is_final, is_native, is_private, is_static, is_strict, is_synchronised
-		}
-
-		let is_interface_method = false;
-		if is_interface_method {
-			// must have: is_abstract, is_public
-			// may have: is_bridge, is_varargs, is_synthetic
-			// -> must not have: (is_private, is_protected), is_static, is_final, is_synchronised, is_native, is_strict
-		}
-
-		let is_specific_instance_initialisation_method = false;
-		if is_specific_instance_initialisation_method {
-			// at most one of: public, private, protected
-			// may have: is_varargs, is_strict, is_synthetic
-			// -> must not have: is_static, is_final, is_synchronised, is_bridge, is_native, is_abstract
-		}
-
-		// class and interface initialisation methods: don't check any of this
-
-		Ok(MethodInfoAccess {
-			is_public, is_private, is_protected, is_static, is_final, is_synchronised, is_bridge, is_varargs, is_native, is_abstract, is_strict, is_synthetic
-		})
-	}
-}
-
-impl Debug for MethodInfoAccess {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.write_str("MethodInfoAccess { ")?;
-		if self.is_public       { f.write_str("public ")?; }
-		if self.is_private      { f.write_str("private ")?; }
-		if self.is_protected    { f.write_str("protected ")?; }
-		if self.is_static       { f.write_str("static ")?; }
-		if self.is_final        { f.write_str("final ")?; }
-		if self.is_synchronised { f.write_str("synchronised ")?; }
-		if self.is_bridge       { f.write_str("bridge ")?; }
-		if self.is_varargs      { f.write_str("varargs ")?; }
-		if self.is_native       { f.write_str("native ")?; }
-		if self.is_abstract     { f.write_str("abstract ")?; }
-		if self.is_strict       { f.write_str("strict ")?; }
-		if self.is_synthetic    { f.write_str("synthetic ")?; }
-		f.write_str("}")
-	}
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodInfo { // 4.6
 	pub access_flags: MethodInfoAccess,
-	pub name: Utf8Info,
-	pub descriptor: Utf8Info,
+	pub name: MethodName,
+	pub descriptor: MethodDescriptor,
 	pub attributes: Vec<AttributeInfo>,
 	pub code: Option<CodeAttribute>,
 }
 
 impl MethodInfo {
-	fn parse<R: Read>(reader: &mut R, constant_pool: &ConstantPool) -> Result<Self, ClassFileParseError> {
-		let access_flags = MethodInfoAccess::parse(parse_u2(reader)?)?;
-		let name = constant_pool.parse_index(reader)?;
-		let descriptor = constant_pool.parse_index(reader)?;
-		let attributes = parse_vec(reader,
-		   parse_u2_as_usize,
-		   |r| AttributeInfo::parse(r, constant_pool)
+	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self, ClassFileParseError> {
+		let access_flags = MethodInfoAccess::parse(reader.read_u2()?)?;
+		let name = pool.get(reader.read_u2_as_usize()?)?;
+		let descriptor = pool.get(reader.read_u2_as_usize()?)?;
+		let attributes = reader.read_vec(
+		   |r| r.read_u2_as_usize(),
+		   |r| AttributeInfo::parse(r, pool)
 		)?;
 
 		let (code, attributes): (Vec<CodeAttribute>, Vec<AttributeInfo>) = attributes.into_iter()
@@ -272,11 +157,10 @@ impl MethodInfo {
 pub struct ClassFile { // 4.1
 	pub minor_version: u16,
 	pub major_version: u16,
-	pub constant_pool: ConstantPool,
-	pub access_flags: u16,
-	pub this_class: ClassInfo,
-	pub super_class: Option<ClassInfo>,
-	pub interfaces: Vec<ClassInfo>,
+	pub access_flags: ClassInfoAccess,
+	pub this_class: ClassName,
+	pub super_class: Option<ClassName>,
+	pub interfaces: Vec<ClassName>,
 	pub fields: Vec<FieldInfo>,
 	pub methods: Vec<MethodInfo>,
 	pub attributes: Vec<AttributeInfo>,
@@ -284,13 +168,13 @@ pub struct ClassFile { // 4.1
 
 impl ClassFile {
 	pub fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
-		let magic = parse_u4(reader)?;
+		let magic = reader.read_u4()?;
 		if magic != 0xCAFE_BABE {
 			return Err(ClassFileParseError::InvalidMagic(magic));
 		}
 
-		let minor_version = parse_u2(reader)?;
-		let major_version = parse_u2(reader)?;
+		let minor_version = reader.read_u2()?;
+		let major_version = reader.read_u2()?;
 
 		if major_version <= 51 {
 			return Err(ClassFileParseError::WrongVersion {
@@ -298,33 +182,28 @@ impl ClassFile {
 			});
 		}
 
-		let constant_pool = ConstantPool::parse(reader)?;
+		let pool = Pool::parse(reader)?;
 
-		let access_flags = parse_u2(reader)?;
+		let access_flags = ClassInfoAccess::parse(reader.read_u2()?)?;
 
-		let this_class: ClassInfo = constant_pool.parse_index(reader)?;
-		let super_class: Option<ClassInfo> = constant_pool.parse_index_optional(reader)?;
+		let this_class: ClassName = pool.get(reader.read_u2_as_usize()?)?;
+		let super_class: Option<ClassName> = pool.get(reader.read_u2_as_usize()?)?;
 
-		let interfaces: Vec<ClassInfo> = {
-			let count = parse_u2(reader)? as usize;
-			let mut vec = Vec::with_capacity(count);
-			for _ in 0..count {
-				vec.push(constant_pool.parse_index(reader)?);
-			}
-			vec
-		};
-
-		let fields = parse_vec(reader,
-			parse_u2_as_usize,
-			|r| FieldInfo::parse(r, &constant_pool)
+		let interfaces: Vec<ClassName> = reader.read_vec(
+			|r| r.read_u2_as_usize(),
+			|r| pool.get(reader.read_u2_as_usize()?)
 		)?;
-		let methods = parse_vec(reader,
-		    parse_u2_as_usize,
-		    |r| MethodInfo::parse(r, &constant_pool)
+		let fields = reader.read_vec(
+			|r| r.read_u2_as_usize(),
+			|r| FieldInfo::parse(r, &pool)
 		)?;
-		let attributes = parse_vec(reader,
-			parse_u2_as_usize,
-		   |r| AttributeInfo::parse(r, &constant_pool)
+		let methods = reader.read_vec(
+		    |r| r.read_u2_as_usize(),
+		    |r| MethodInfo::parse(r, &pool)
+		)?;
+		let attributes = reader.read_vec(
+			|r| r.read_u2_as_usize(),
+		   |r| AttributeInfo::parse(r, &pool)
 		)?;
 
 		let mut end = [0u8];
@@ -332,7 +211,7 @@ impl ClassFile {
 			return Err(ClassFileParseError::IllegalInstruction("Contains bytes after class file."));
 		}
 
-		Ok(ClassFile { minor_version, major_version, constant_pool, access_flags, this_class, super_class, interfaces, fields, methods, attributes })
+		Ok(ClassFile { minor_version, major_version, access_flags, this_class, super_class, interfaces, fields, methods, attributes })
 	}
 
 	pub fn verify(&self) -> Result<(), ClassFileParseError> {
@@ -348,15 +227,15 @@ mod testing {
 	use super::ClassFile;
 	#[test]
 	fn try_parse_classfile() {
-		let bytes = include_bytes!("../../../java_example_classfiles/Test.class");
+		let bytes = include_bytes!("../../../java_example_classfiles/Test3.class");
 		let class_file = ClassFile::parse(&mut &bytes[..]).unwrap();
 		class_file.verify().unwrap();
 
 		//println!("{:#?}", class_file);
 
-		for method in class_file.methods {
-			println!("method: {:#?}", method.code);
-		}
+		//for method in class_file.methods {
+		//	println!("method: {:#?}", method.code);
+		//}
 	}
 
 	#[test]

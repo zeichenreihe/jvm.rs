@@ -1,23 +1,24 @@
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::rc::Rc;
-use crate::classfile::{ClassFile, ConstantValueAttribute, FieldInfo, NameAndTypeInfo};
+use crate::classfile::{ClassFile, FieldInfo};
+use crate::classfile::cp::attribute::ConstantValueAttribute;
+use crate::classfile::descriptor::{BaseOrObjectType, FieldDescriptor};
+use crate::classfile::name::FieldName;
 use crate::errors::OutOfBoundsError;
 use crate::executor::{J_NULL, JInt, JReference, StackFrameLvType};
-use crate::types::descriptor::{BaseOrObjectType, FieldDescriptor};
 
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field {
 	pub size: usize,
 	pub field_offset: usize,
-	pub descriptor: FieldDescriptor,
 	pub field: FieldInfo,
 }
 
 impl Field {
 	pub fn load<C: ClassData>(&self, class_data: &Rc<C>) -> Result<StackFrameLvType, OutOfBoundsError> {
-		match self.descriptor.base_or_object_type {
+		match self.field.descriptor.base_type {
 			BaseOrObjectType::B => todo!(),
 			BaseOrObjectType::C => todo!(),
 			BaseOrObjectType::D => todo!(),
@@ -41,7 +42,7 @@ impl Field {
 				ConstantValueAttribute::String(_) => todo!(),
 			}
 		} else {
-			match self.descriptor.base_or_object_type {
+			match self.field.descriptor.base_type {
 				BaseOrObjectType::I => class_data.put_int(self.field_offset, 0),
 				BaseOrObjectType::Object(_) => Ok(class_data.put_reference(self.field_offset, J_NULL).unwrap()), // TODO: unwrap
 				_ => todo!(),
@@ -56,8 +57,8 @@ pub struct Class {
 	pub class_size: usize,
 	pub class: ClassFile,
 
-	pub non_static_fields: HashMap<NameAndTypeInfo, Field>,
-	pub static_fields: HashMap<NameAndTypeInfo, Field>,
+	pub non_static_fields: HashMap<(FieldName, FieldDescriptor), Field>,
+	pub static_fields: HashMap<(FieldName, FieldDescriptor), Field>,
 
 	pub static_data: Vec<u8>,
 	// method table

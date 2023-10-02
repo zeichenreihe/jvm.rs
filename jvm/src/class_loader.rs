@@ -3,17 +3,17 @@ use std::fs::File;
 use std::path::Path;
 use std::rc::Rc;
 use crate::class_instance::{Class, Field};
-use crate::classfile::{ClassFile, ClassInfo, FieldInfo, NameAndTypeInfo};
+use crate::classfile::{ClassFile, FieldInfo};
+use crate::classfile::name::ClassName;
 use crate::errors::{ClassFileParseError, ClassLoadError};
-use crate::types::descriptor::FieldDescriptor;
 
 // class loading action list:
 // - loading: load ClassFile from disk/...
 // - linking: convert from ClassFile to Class
 // - initialisation: call <clinit>
 
-#[derive(Debug)]
 /// Represents a searchable thing to check when loading a class.
+#[derive(Debug)]
 pub enum ClassesSource {
 	/// A `.zip` or `.jar` file containing `.class` files, given by a name like `/foo/bar/Baz.class` for the class `foo/bar/Baz`. Will be searched for a class
 	/// matching in file name, then the name in the class file is checked.
@@ -24,20 +24,20 @@ pub enum ClassesSource {
 	/// A single class file, referenced as a file. The file name isn't checked for anything, the class file referenced by `path` is checked to have the
 	/// same name.
 	Class {
-		name: String, // TODO: ensure that the name here matches the file name (not super important) and the name in the file
+		name: ClassName, // TODO: ensure that the name here matches the file name (not super important) and the name in the file
 		path: Box<Path>,
 	},
 	/// A class file that's embedded in the application that's running. The name is checked with the name in the bytes.
 	Bytes {
-		name: String, // TODO: ensure that the name here matches the name in the bytes
+		name: ClassName, // TODO: ensure that the name here matches the name in the bytes
 		bytes: Vec<u8>,
 	},
 }
 
 impl ClassesSource {
 	/// Attempts to locate and load a class. Returns `Ok(None)` if no class with the name can be found.
-	fn load(&self, name: &ClassInfo) -> Result<Option<ClassFile>, ClassFileParseError> {
-		if &name.name.to_string() == match self {
+	fn load(&self, name: &ClassName) -> Result<Option<ClassFile>, ClassFileParseError> {
+		if name == match self {
 			ClassesSource::Class { name, .. } => name,
 			ClassesSource::Bytes { name, .. } => name,
 			_ => todo!(),
@@ -63,19 +63,19 @@ impl ClassesSource {
 #[derive(Debug)]
 pub struct ClassLoader {
 	pub sources: Vec<ClassesSource>,
-	classes: HashMap<ClassInfo, Rc<Class>>,
+	classes: HashMap<ClassName, Rc<Class>>,
 }
 
 impl ClassLoader {
-	pub fn new() -> ClassLoader {
+	pub fn new(sources: Vec<ClassesSource>) -> ClassLoader {
 		ClassLoader {
-			sources: Vec::new(),
+			sources,
 			classes: HashMap::new(),
 		}
 	}
 
 	// call only if you tried getting and didn't find any
-	fn load(&mut self, class_name: &ClassInfo, currently_loading: &mut Vec<ClassInfo>) -> Result<Class, ClassLoadError> {
+	fn load(&mut self, class_name: &ClassName, currently_loading: &mut Vec<ClassName>) -> Result<Class, ClassLoadError> {
 		let class_file = self.sources.iter()
 			.find_map(|source| {
 				match source.load(class_name) {
@@ -102,20 +102,18 @@ impl ClassLoader {
 		let mut non_static_field_offset = 0;
 		let non_static_fields: HashMap<_, _> = non_static_fields.iter()
 			.map(|&field| {
-				let descriptor = FieldDescriptor::parse(&field.descriptor)?;
-				let size = descriptor.base_or_object_type.get_size() * 4;
+				let size = field.descriptor.base_type.get_size() * 4;
 				let f = Field {
-					descriptor,
 					size,
 					field_offset: non_static_field_offset,
 					field: field.clone(),
 				};
 				non_static_field_offset += size;
 				Ok::<_, ClassLoadError>((
-					NameAndTypeInfo {
-						name: field.name.clone(),
-						descriptor: field.descriptor.clone(),
-					},
+					(
+						field.name.clone(),
+						field.descriptor.clone()
+					),
 					f
 				))
 			})
@@ -125,20 +123,18 @@ impl ClassLoader {
 
 		let static_fields: HashMap<_, _> = static_fields.iter()
 			.map(|&field| {
-				let descriptor = FieldDescriptor::parse(&field.descriptor).unwrap(); // TODO: panic, fix this
-				let size = descriptor.base_or_object_type.get_size() * 4;
+				let size = field.descriptor.base_type.get_size() * 4;
 				let f = Field {
-					descriptor,
 					size,
 					field_offset: static_field_offset,
 					field: field.clone(),
 				};
 				static_field_offset += size;
 				(
-					NameAndTypeInfo {
-						name: field.name.clone(),
-						descriptor: field.descriptor.clone(),
-					},
+					(
+						field.name.clone(),
+						field.descriptor.clone()
+					),
 					f
 				)
 			})
@@ -163,11 +159,11 @@ impl ClassLoader {
 		Ok(class)
 	}
 
-	pub fn get(&mut self, class_name: &ClassInfo) -> Result<&Rc<Class>, ClassLoadError> {
+	pub fn get(&mut self, class_name: &ClassName) -> Result<&Rc<Class>, ClassLoadError> {
 		self.get_checked(class_name, &mut Vec::new())
 	}
 
-	fn get_checked(&mut self, class_name: &ClassInfo, currently_loading: &mut Vec<ClassInfo>) -> Result<&Rc<Class>, ClassLoadError> {
+	fn get_checked(&mut self, class_name: &ClassName, currently_loading: &mut Vec<ClassName>) -> Result<&Rc<Class>, ClassLoadError> {
 		if !self.classes.contains_key(class_name) {
 
 			// Let C be a class that we try to load. This loading can load other classes, say C_1, C_2, C_3 and so on. To ensure that such a class isn't the

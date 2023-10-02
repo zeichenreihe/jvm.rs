@@ -1,31 +1,34 @@
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::mem::size_of;
-use crate::classfile::{ConstantPool, ConstantPoolElement};
+use crate::classfile::cp::attribute::{ExceptionTableEntry, StackMapTableAttribute};
+use crate::classfile::cp::{Pool, PoolEntry};
 use crate::errors::{ClassFileParseError, OutOfBoundsError};
-use crate::opcodes::{ArrayType, Opcode};
+use crate::classfile::instruction::{LvIndex, Opcode};
 
 struct CodeReader {
 	bytes: Vec<u8>,
 	pos: usize,
 	instruction_count: usize,
 	this_instruction_pos: usize,
-	pc_map: PcMap,
 }
 
 impl CodeReader {
+	fn new(bytes: Vec<u8>) -> CodeReader {
+		CodeReader {
+			bytes,
+			pos: 0,
+			instruction_count: 0,
+			this_instruction_pos: 0,
+		}
+	}
+
 	fn has_elements(&self) -> bool {
 		self.pos < self.bytes.len()
 	}
 
 	fn next_instruction(&mut self) -> () {
-		self.pc_map.0.insert(self.pos, self.instruction_count);
 		self.instruction_count += 1;
 		self.this_instruction_pos = self.pos;
-	}
-
-	fn remap_pc(&self, target: &mut usize) -> () {
-		self.pc_map.remap_pc(target);
 	}
 
 	fn move_to_next_4_byte_boundary(&mut self) -> () {
@@ -99,30 +102,14 @@ impl CodeReader {
 	}
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// Maps from the "old" program counter, that is, the one in the original bytecode, to "our" program counter, that is, the index in the code vec.
-pub struct PcMap(HashMap<usize, usize>);
-
-impl PcMap {
-	fn remap_pc(&self, target: &mut usize) -> () {
-		*target = *self.0.get(&target).expect("no such instruction at bytecode ...");
-	}
-
-	pub fn map(&self, target: usize) -> Result<usize, ClassFileParseError> {
-		Ok(*self.0.get(&target).expect("no such instruction at bytecode ..."))
-	}
-}
-
 #[derive(Clone, PartialEq, Eq)]
 pub struct Code {
 	pub code: Vec<Opcode>,
-	pub pc_map: PcMap,
 }
 
 impl Debug for Code {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		let mut t = f.debug_struct("Code");
-		t.field("pc_map", &self.pc_map);
 		for (pos, entry) in self.code.iter().enumerate() {
 			t.field(&format!("- {pos:?}"), &entry);
 		}
@@ -131,494 +118,462 @@ impl Debug for Code {
 }
 
 impl Code {
-	pub fn parse(bytes: Vec<u8>, constant_pool: &ConstantPool) -> Result<Code, ClassFileParseError> {
-		let mut bytes = CodeReader {
-			bytes,
-			pos: 0,
-			instruction_count: 0,
-			this_instruction_pos: 0,
-			pc_map: PcMap(HashMap::new()),
-		};
+	fn read_next_opcode(reader: &mut CodeReader, pool: &Pool) -> Result<Opcode, ClassFileParseError> {
+		Ok(match reader.get_u8()? {
+			0x32 => Opcode::AALoad,
+			0x53 => Opcode::AAStore,
+			0x01 => Opcode::AConstNull,
+			0x19 => Opcode::ALoad(LvIndex(reader.get_u8_as_usize()?)),
+			0x2a => Opcode::ALoad(LvIndex(0)),
+			0x2b => Opcode::ALoad(LvIndex(1)),
+			0x2c => Opcode::ALoad(LvIndex(2)),
+			0x2d => Opcode::ALoad(LvIndex(3)),
+			0xbd => Opcode::ANewArray {
+				class: pool.get(reader.get_u16_as_usize()?)?
+			},
+			0xb0 => Opcode::AReturn,
+			0xbe => Opcode::ArrayLength,
+			0x3a => Opcode::AStore(LvIndex(reader.get_u8_as_usize()?)),
+			0x4b => Opcode::AStore(LvIndex(0)),
+			0x4c => Opcode::AStore(LvIndex(1)),
+			0x4d => Opcode::AStore(LvIndex(2)),
+			0x4e => Opcode::AStore(LvIndex(3)),
+			0xbf => Opcode::AThrow,
+			0x33 => Opcode::BALoad,
+			0x54 => Opcode::BAStore,
+			0x10 => Opcode::BIPush {
+				byte: reader.get_u8()?,
+			},
+			0xca => Opcode::Breakpoint,
+			0x34 => Opcode::CALoad,
+			0x55 => Opcode::CAStore,
+			0xc0 => Opcode::CheckCast {
+				class: pool.get(reader.get_u16_as_usize()?)?,
+			},
+			0x90 => Opcode::D2f,
+			0x8e => Opcode::D2i,
+			0x8f => Opcode::D2l,
+			0x63 => Opcode::DAdd,
+			0x31 => Opcode::DALoad,
+			0x52 => Opcode::DAStore,
+			0x98 => Opcode::DCmpG,
+			0x97 => Opcode::DCmpL,
+			0x0e => Opcode::DConst0,
+			0x0f => Opcode::DConst1,
+			0x6f => Opcode::DDiv,
+			0x18 => Opcode::DLoad(LvIndex(reader.get_u8_as_usize()?)),
+			0x26 => Opcode::DLoad(LvIndex(0)),
+			0x27 => Opcode::DLoad(LvIndex(1)),
+			0x28 => Opcode::DLoad(LvIndex(2)),
+			0x29 => Opcode::DLoad(LvIndex(3)),
+			0x6b => Opcode::DMul,
+			0x77 => Opcode::DNeg,
+			0x73 => Opcode::DRem,
+			0xaf => Opcode::DReturn,
+			0x39 => Opcode::DStore(LvIndex(reader.get_u8_as_usize()?)),
+			0x47 => Opcode::DStore(LvIndex(0)),
+			0x48 => Opcode::DStore(LvIndex(1)),
+			0x49 => Opcode::DStore(LvIndex(2)),
+			0x4a => Opcode::DStore(LvIndex(3)),
+			0x67 => Opcode::DSub,
+			0x59 => Opcode::Dup,
+			0x5a => Opcode::DupX1,
+			0x5b => Opcode::DupX2,
+			0x5c => Opcode::Dup2,
+			0x5d => Opcode::Dup2X1,
+			0x5e => Opcode::Dup2X2,
+			0x8d => Opcode::F2d,
+			0x8b => Opcode::F2i,
+			0x8c => Opcode::F2l,
+			0x62 => Opcode::FAdd,
+			0x30 => Opcode::FALoad,
+			0x51 => Opcode::FAStore,
+			0x96 => Opcode::FCmpG,
+			0x95 => Opcode::FCmpL,
+			0x0b => Opcode::FConst0,
+			0x0c => Opcode::FConst1,
+			0x0d => Opcode::FConst2,
+			0x6e => Opcode::FDiv,
+			0x17 => Opcode::FLoad(LvIndex(reader.get_u8_as_usize()?)),
+			0x22 => Opcode::FLoad(LvIndex(0)),
+			0x23 => Opcode::FLoad(LvIndex(1)),
+			0x24 => Opcode::FLoad(LvIndex(2)),
+			0x25 => Opcode::FLoad(LvIndex(3)),
+			0x6a => Opcode::FMul,
+			0x76 => Opcode::FNeg,
+			0x72 => Opcode::FRem,
+			0xae => Opcode::FReturn,
+			0x38 => Opcode::FStore(LvIndex(reader.get_u8_as_usize()?)),
+			0x43 => Opcode::FStore(LvIndex(0)),
+			0x44 => Opcode::FStore(LvIndex(1)),
+			0x45 => Opcode::FStore(LvIndex(2)),
+			0x46 => Opcode::FStore(LvIndex(3)),
+			0x66 => Opcode::FSub,
+			0xb4 => Opcode::GetField(pool.get(reader.get_u16_as_usize()?)?),
+			0xb2 => Opcode::GetStatic(pool.get(reader.get_u16_as_usize()?)?),
+			0xa7 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				Opcode::Goto { branch_target }
+			},
+			0xc8 => {
+				let branch_target = reader.get_i32_branchoffset()?;
+				Opcode::Goto { branch_target }
+			},
+			0x91 => Opcode::I2b,
+			0x92 => Opcode::I2c,
+			0x87 => Opcode::I2d,
+			0x86 => Opcode::I2f,
+			0x85 => Opcode::I2l,
+			0x93 => Opcode::I2s,
+			0x60 => Opcode::IAdd,
+			0x2e => Opcode::IALoad,
+			0x7e => Opcode::IAnd,
+			0x4f => Opcode::IAStore,
+			0x02 => Opcode::IConstM1,
+			0x03 => Opcode::IConst0,
+			0x04 => Opcode::IConst1,
+			0x05 => Opcode::IConst2,
+			0x06 => Opcode::IConst3,
+			0x07 => Opcode::IConst4,
+			0x08 => Opcode::IConst5,
+			0x6c => Opcode::IDiv,
+			0xa5 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfACmpEq { branch_target, else_branch_target }
+			},
+			0xa6 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfACmpNe { branch_target, else_branch_target }
+			},
+			0x9f => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfICmpEq { branch_target, else_branch_target }
+			},
+			0xa2 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfICmpGe { branch_target, else_branch_target }
+			},
+			0xa3 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfICmpGt { branch_target, else_branch_target }
+			},
+			0xa4 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfICmpLe { branch_target, else_branch_target }
+			},
+			0xa1 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfICmpLt { branch_target, else_branch_target }
+			},
+			0xa0 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfICmpNe { branch_target, else_branch_target }
+			},
+			0x99 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfEq { branch_target, else_branch_target }
+			},
+			0x9c => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfGe { branch_target, else_branch_target }
+			},
+			0x9d => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfGt { branch_target, else_branch_target }
+			},
+			0x9e => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfLe { branch_target, else_branch_target }
+			},
+			0x9b => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfLt { branch_target, else_branch_target }
+			},
+			0x9a => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfNe { branch_target, else_branch_target }
+			},
+			0xc7 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfNonNull { branch_target, else_branch_target }
+			},
+			0xc6 => {
+				let branch_target = reader.get_i16_branchoffset()?;
+				let else_branch_target = reader.pos;
+				Opcode::IfNull { branch_target, else_branch_target }
+			},
+			0x84 => Opcode::IInc {
+				lv_index: reader.get_u8_as_usize()?,
+				const_: reader.get_u8()? as i32,
+			},
+			0x15 => Opcode::ILoad(LvIndex(reader.get_u8_as_usize()?)),
+			0x1a => Opcode::ILoad(LvIndex(0)),
+			0x1b => Opcode::ILoad(LvIndex(1)),
+			0x1c => Opcode::ILoad(LvIndex(2)),
+			0x1d => Opcode::ILoad(LvIndex(3)),
+			0xfe => Opcode::ImpDep1,
+			0xff => Opcode::ImpDep2,
+			0x68 => Opcode::IMul,
+			0x74 => Opcode::INeg,
+			0xc1 => Opcode::InstanceOf {
+				class: pool.get(reader.get_u16_as_usize()?)?,
+			},
+			0xba => Opcode::InvokeDynamic {
+				call_site: pool.get(reader.get_u16_as_usize()?)?,
+				zero1: reader.get_u8()?, // == 0
+				zero2: reader.get_u8()?, // == 0
+			},
+			0xb9 => Opcode::InvokeInterface {
+				method_ref: pool.get(reader.get_u16_as_usize()?)?,
+				count: reader.get_u8()?,
+				zero: reader.get_u8()?, // == 0
+			},
+			0xb7 => Opcode::InvokeSpecial {
+				// TODO: JVMS 8, 4.9.1
+				method_ref: pool.get(reader.get_u16_as_usize()?)?,
+			},
+			0xb8 => Opcode::InvokeStatic {
+				method_ref: pool.get(reader.get_u16_as_usize()?)?,
+			},
+			0xb6 => Opcode::InvokeVirtual {
+				method_ref: pool.get(reader.get_u16_as_usize()?)?,
+			},
+			0x80 => Opcode::IOr,
+			0x70 => Opcode::IRem,
+			0xac => Opcode::IReturn,
+			0x78 => Opcode::IShl,
+			0x7a => Opcode::IShr,
+			0x36 => Opcode::IStore(LvIndex(reader.get_u8_as_usize()?)),
+			0x3b => Opcode::IStore(LvIndex(0)),
+			0x3c => Opcode::IStore(LvIndex(1)),
+			0x3d => Opcode::IStore(LvIndex(2)),
+			0x3e => Opcode::IStore(LvIndex(3)),
+			0x64 => Opcode::ISub,
+			0x7c => Opcode::IUShr,
+			0x82 => Opcode::IXor,
+			0xa8 => { // jsr
+				return Err(ClassFileParseError::IllegalInstruction("jsr instruction is not legal in class files of version 52.0 or greater"));
+				//let branch_target = reader.get_i16_branchoffset()?;
+				//Opcode::Jsr { branch_target }
+			},
+			0xc9 => { // jsr_w
+				return Err(ClassFileParseError::IllegalInstruction("jsr_w instruction is not legal in class files of version 52.0 or greater"));
+				//let branch_target = reader.get_i32_branchoffset()?;
+				//Opcode::Jsr { branch_target }
+			},
+			0x8a => Opcode::L2d,
+			0x89 => Opcode::L2f,
+			0x88 => Opcode::L2i,
+			0x61 => Opcode::LAdd,
+			0x2f => Opcode::LALoad,
+			0x7f => Opcode::LAnd,
+			0x50 => Opcode::LAStore,
+			0x94 => Opcode::LCmp,
+			0x09 => Opcode::LConst0,
+			0x0a => Opcode::LConst1,
+			opcode @ (0x12 | 0x13) => {
+				let cp_index = match opcode {
+					0x12 => reader.get_u8_as_usize()?, // ldc
+					0x13 => reader.get_u16_as_usize()?, // ldc_w
+					_ => unreachable!(),
+				};
 
-		let mut code = Vec::new();
+				match pool.get(cp_index)? {
+					PoolEntry::Integer(int) => {
+						Opcode::LdcInt { int }
+					},
+					PoolEntry::Float(float) => {
+						Opcode::LdcFloat { float }
+					},
+					PoolEntry::String(string) => {
+						Opcode::LdcReferenceString { string }
+					},
+					PoolEntry::Class(class) => {
+						Opcode::LdcReferenceClass(class)
+					},
+					PoolEntry::MethodType(method_type) => {
+						Opcode::LdcReferenceMethodType { method_type }
+					},
+					PoolEntry::MethodHandle(method_handle) => {
+						Opcode::LdcReferenceMethodHandle { method_handle }
+					},
+					_ => todo!("handle error"),
+				}
+			},
+			0x14 => { // ldc2_w
+				let cp_index = reader.get_u16_as_usize()?;
+				match pool.get(cp_index)? {
+					PoolEntry::Long(long) => {
+						Opcode::Ldc2WLong { long }
+					},
+					PoolEntry::Double(double) => {
+						Opcode::Ldc2WDouble { double }
+					},
+					_ => todo!("handle error"),
+				}
+			},
+			0x6d => Opcode::LDiv,
+			0x16 => Opcode::LLoad(LvIndex(reader.get_u8_as_usize()?)),
+			0x1e => Opcode::LLoad(LvIndex(0)),
+			0x1f => Opcode::LLoad(LvIndex(1)),
+			0x20 => Opcode::LLoad(LvIndex(2)),
+			0x21 => Opcode::LLoad(LvIndex(3)),
+			0x69 => Opcode::LMul,
+			0x75 => Opcode::LNeg,
+			0xab => { // LookupSwitch
+				reader.move_to_next_4_byte_boundary();
+
+				let default_target = reader.get_i32_branchoffset()?;
+				let npairs = reader.get_i32()?;
+
+				let n = npairs as usize; // TODO: can panic!
+
+				let mut targets = Vec::with_capacity(n);
+				for _ in 0..n {
+					let match_ = reader.get_i32()?;
+					let branch_target = reader.get_i32_branchoffset()?;
+
+					targets.push((match_, branch_target));
+				}
+
+				Opcode::LookupSwitch { default_target, npairs, targets }
+			},
+			0x81 => Opcode::LOr,
+			0x71 => Opcode::LRem,
+			0xad => Opcode::LReturn,
+			0x79 => Opcode::LShl,
+			0x7b => Opcode::LShr,
+			0x37 => Opcode::LStore(LvIndex(reader.get_u8_as_usize()?)),
+			0x3f => Opcode::LStore(LvIndex(0)),
+			0x40 => Opcode::LStore(LvIndex(1)),
+			0x41 => Opcode::LStore(LvIndex(2)),
+			0x42 => Opcode::LStore(LvIndex(3)),
+			0x65 => Opcode::LSub,
+			0x7d => Opcode::LUShr,
+			0x83 => Opcode::LXor,
+			0xc2 => Opcode::MonitorEnter,
+			0xc3 => Opcode::MonitorExit,
+			0xc5 => Opcode::MultiANewArray {
+				class: pool.get(reader.get_u16_as_usize()?)?,
+				dimensions: reader.get_u8()?, // >= 1
+			},
+			0xbb => Opcode::New {
+				// TODO: may not be array class, 4.9.1
+				class: pool.get(reader.get_u16_as_usize()?)?,
+			},
+			0xbc => Opcode::NewArray {
+				a_type: ArrayType::parse(reader.get_u8()?)?,
+			},
+			0x00 => Opcode::Nop,
+			0x57 => Opcode::Pop,
+			0x58 => Opcode::Pop2,
+			0xb5 => Opcode::PutField(pool.get(reader.get_u16_as_usize()?)?),
+			0xb3 => Opcode::PutStatic(pool.get(reader.get_u16_as_usize()?)?),
+			0xa9 => {
+				return Err(ClassFileParseError::IllegalInstruction("ret instruction is not legal in class files of version 52.0 or greater"));
+				//Opcode::Ret {
+				//	lv_index: reader.get_u8_as_usize()?,
+				//}
+			},
+			0xb1 => Opcode::Return,
+			0x35 => Opcode::SALoad,
+			0x56 => Opcode::SAStore,
+			0x11 => Opcode::SIPush {
+				byte1: reader.get_u8()?,
+				byte2: reader.get_u8()?,
+			},
+			0x5f => Opcode::Swap,
+			0xaa => { // TableSwitch
+				reader.move_to_next_4_byte_boundary();
+
+				let default_target = reader.get_i32_branchoffset()?;
+				let low = reader.get_i32()?;
+				let high = reader.get_i32()?;
+
+				let n = (high - low + 1) as usize;
+
+				let mut targets = Vec::with_capacity(n);
+				for _ in 0..n {
+					let branch_target = reader.get_i32_branchoffset()?;
+					targets.push(branch_target);
+				}
+
+				Opcode::TableSwitch {
+					default_target,
+					low,
+					high,
+					targets,
+				}
+			},
+			0xc4 => { // Wide
+				let opcode = reader.get_u8()?;
+
+				match opcode {
+					0x19 => Opcode::ALoad(LvIndex(reader.get_u16_as_usize()?)),
+					0x3a => Opcode::AStore(LvIndex(reader.get_u16_as_usize()?)),
+					0x18 => Opcode::DLoad(LvIndex(reader.get_u16_as_usize()?)),
+					0x39 => Opcode::DStore(LvIndex(reader.get_u16_as_usize()?)),
+					0x17 => Opcode::FLoad(LvIndex(reader.get_u16_as_usize()?)),
+					0x38 => Opcode::FStore(LvIndex(reader.get_u16_as_usize()?)),
+					0x15 => Opcode::ILoad(LvIndex(reader.get_u16_as_usize()?)),
+					0x36 => Opcode::IStore(LvIndex(reader.get_u16_as_usize()?)),
+					0x16 => Opcode::LLoad(LvIndex(reader.get_u16_as_usize()?)),
+					0x37 => Opcode::LStore(LvIndex(reader.get_u16_as_usize()?)),
+					0xa0 => {
+						return Err(ClassFileParseError::IllegalInstruction("wide ret instruction is not legal in class files of version 52.0 or greater"));
+						//Opcode::Ret {
+						//	lv_index: reader.get_u16_as_usize()?,
+						//}
+					},
+					0x84 => Opcode::IInc {
+						lv_index: LvIndex(reader.get_u16_as_usize()?),
+						const_: reader.get_i16()? as i32,
+					},
+					_ => todo!(),
+				}
+			},
+			x => todo!("not implemented: {}", x),
+		})
+	}
+
+	pub fn parse(bytes: Vec<u8>, pool: &Pool, _: StackMapTableAttribute, exceptions: Vec<ExceptionTableEntry>)
+				 -> Result<Code, ClassFileParseError> {
+
+
+		let mut reader = CodeReader::new(bytes);
+
+		let mut instructions = Vec::new();
 
 		// parse the instructions, using absolute values for jump locations
-		while bytes.has_elements() {
-			bytes.next_instruction();
-			let opcode = match bytes.get_u8()? {
-				0x32 => Opcode::AALoad,
-				0x53 => Opcode::AAStore,
-				0x01 => Opcode::AConstNull,
-				0x19 => Opcode::ALoad {
-					lv_index: bytes.get_u8()?,
-				},
-				0x2a => Opcode::ALoad0,
-				0x2b => Opcode::ALoad1,
-				0x2c => Opcode::ALoad2,
-				0x2d => Opcode::ALoad3,
-				0xbd => Opcode::ANewArray {
-					class: constant_pool.get(bytes.get_u16_as_usize()?)?
-				},
-				0xb0 => Opcode::AReturn,
-				0xbe => Opcode::ArrayLength,
-				0x3a => Opcode::AStore {
-					lv_index: bytes.get_u8()?,
-				},
-				0x4b => Opcode::AStore0,
-				0x4c => Opcode::AStore1,
-				0x4d => Opcode::AStore2,
-				0x4e => Opcode::AStore3,
-				0xbf => Opcode::AThrow,
-				0x33 => Opcode::BALoad,
-				0x54 => Opcode::BAStore,
-				0x10 => Opcode::BIPush {
-					byte: bytes.get_u8()?,
-				},
-				0xca => Opcode::Breakpoint,
-				0x34 => Opcode::CALoad,
-				0x55 => Opcode::CAStore,
-				0xc0 => Opcode::CheckCast {
-					class: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0x90 => Opcode::D2f,
-				0x8e => Opcode::D2i,
-				0x8f => Opcode::D2l,
-				0x63 => Opcode::DAdd,
-				0x31 => Opcode::DALoad,
-				0x52 => Opcode::DAStore,
-				0x98 => Opcode::DCmpG,
-				0x97 => Opcode::DCmpL,
-				0x0e => Opcode::DConst0,
-				0x0f => Opcode::DConst1,
-				0x6f => Opcode::DDiv,
-				0x18 => Opcode::DLoad {
-					lv_index: bytes.get_u8()?,
-				},
-				0x26 => Opcode::DLoad0,
-				0x27 => Opcode::DLoad1,
-				0x28 => Opcode::DLoad2,
-				0x29 => Opcode::DLoad3,
-				0x6b => Opcode::DMul,
-				0x77 => Opcode::DNeg,
-				0x73 => Opcode::DRem,
-				0xaf => Opcode::DReturn,
-				0x39 => Opcode::DStore {
-					lv_index: bytes.get_u8()?,
-				},
-				0x47 => Opcode::DStore0,
-				0x48 => Opcode::DStore1,
-				0x49 => Opcode::DStore2,
-				0x4a => Opcode::DStore3,
-				0x67 => Opcode::DSub,
-				0x59 => Opcode::Dup,
-				0x5a => Opcode::DupX1,
-				0x5b => Opcode::DupX2,
-				0x5c => Opcode::Dup2,
-				0x5d => Opcode::Dup2X1,
-				0x5e => Opcode::Dup2X2,
-				0x8d => Opcode::F2d,
-				0x8b => Opcode::F2i,
-				0x8c => Opcode::F2l,
-				0x62 => Opcode::FAdd,
-				0x30 => Opcode::FALoad,
-				0x51 => Opcode::FAStore,
-				0x96 => Opcode::FCmpG,
-				0x95 => Opcode::FCmpL,
-				0x0b => Opcode::FConst0,
-				0x0c => Opcode::FConst1,
-				0x0d => Opcode::FConst2,
-				0x6e => Opcode::FDiv,
-				0x17 => Opcode::FLoad {
-					lv_index: bytes.get_u8()?,
-				},
-				0x22 => Opcode::FLoad0,
-				0x23 => Opcode::FLoad1,
-				0x24 => Opcode::FLoad2,
-				0x25 => Opcode::FLoad3,
-				0x6a => Opcode::FMul,
-				0x76 => Opcode::FNeg,
-				0x72 => Opcode::FRem,
-				0xae => Opcode::FReturn,
-				0x38 => Opcode::FStore {
-					lv_index: bytes.get_u8()?,
-				},
-				0x43 => Opcode::FStore0,
-				0x44 => Opcode::FStore1,
-				0x45 => Opcode::FStore2,
-				0x46 => Opcode::FStore3,
-				0x66 => Opcode::FSub,
-				0xb4 => Opcode::GetField {
-					field_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0xb2 => Opcode::GetStatic {
-					field_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0xa7 => Opcode::Goto {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xc8 => Opcode::GotoW {
-					branch_target: bytes.get_i32_branchoffset()?,
-				},
-				0x91 => Opcode::I2b,
-				0x92 => Opcode::I2c,
-				0x87 => Opcode::I2d,
-				0x86 => Opcode::I2f,
-				0x85 => Opcode::I2l,
-				0x93 => Opcode::I2s,
-				0x60 => Opcode::IAdd,
-				0x2e => Opcode::IALoad,
-				0x7e => Opcode::IAnd,
-				0x4f => Opcode::IAStore,
-				0x02 => Opcode::IConstM1,
-				0x03 => Opcode::IConst0,
-				0x04 => Opcode::IConst1,
-				0x05 => Opcode::IConst2,
-				0x06 => Opcode::IConst3,
-				0x07 => Opcode::IConst4,
-				0x08 => Opcode::IConst5,
-				0x6c => Opcode::IDiv,
-				0xa5 => Opcode::IfACmpEq {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xa6 => Opcode::IfACmpNe {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0x9f => Opcode::IfICmpEq {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xa2 => Opcode::IfICmpGe {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xa3 => Opcode::IfICmpGt {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xa4 => Opcode::IfICmpLe {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xa1 => Opcode::IfICmpLt {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xa0 => Opcode::IfICmpNe {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0x99 => Opcode::IfEq {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0x9c => Opcode::IfGe {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0x9d => Opcode::IfGt {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0x9e => Opcode::IfLe {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0x9b => Opcode::IfLt {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0x9a => Opcode::IfNe {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xc7 => Opcode::IfNonNull {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xc6 => Opcode::IfNull {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0x84 => Opcode::IInc {
-					lv_index: bytes.get_u8()?,
-					const_: bytes.get_u8()?,
-				},
-				0x15 => Opcode::ILoad {
-					lv_index: bytes.get_u8()?,
-				},
-				0x1a => Opcode::ILoad0,
-				0x1b => Opcode::ILoad1,
-				0x1c => Opcode::ILoad2,
-				0x1d => Opcode::ILoad3,
-				0xfe => Opcode::ImpDep1,
-				0xff => Opcode::ImpDep2,
-				0x68 => Opcode::IMul,
-				0x74 => Opcode::INeg,
-				0xc1 => Opcode::InstanceOf {
-					class: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0xba => Opcode::InvokeDynamic {
-					call_site: constant_pool.get(bytes.get_u16_as_usize()?)?,
-					zero1: bytes.get_u8()?, // == 0
-					zero2: bytes.get_u8()?, // == 0
-				},
-				0xb9 => Opcode::InvokeInterface {
-					method_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
-					count: bytes.get_u8()?,
-					zero: bytes.get_u8()?, // == 0
-				},
-				0xb7 => Opcode::InvokeSpecial {
-					method_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0xb8 => Opcode::InvokeStatic {
-					method_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0xb6 => Opcode::InvokeVirtual {
-					method_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0x80 => Opcode::IOr,
-				0x70 => Opcode::IRem,
-				0xac => Opcode::IReturn,
-				0x78 => Opcode::IShl,
-				0x7a => Opcode::IShr,
-				0x36 => Opcode::IStore {
-					lv_index: bytes.get_u8()?,
-				},
-				0x3b => Opcode::IStore0,
-				0x3c => Opcode::IStore1,
-				0x3d => Opcode::IStore2,
-				0x3e => Opcode::IStore3,
-				0x64 => Opcode::ISub,
-				0x7c => Opcode::IUShr,
-				0x82 => Opcode::IXor,
-				0xa8 => Opcode::Jsr {
-					branch_target: bytes.get_i16_branchoffset()?,
-				},
-				0xc9 => Opcode::JsrW {
-					branch_target: bytes.get_i32_branchoffset()?,
-				},
-				0x8a => Opcode::L2d,
-				0x89 => Opcode::L2f,
-				0x88 => Opcode::L2i,
-				0x61 => Opcode::LAdd,
-				0x2f => Opcode::LALoad,
-				0x7f => Opcode::LAnd,
-				0x50 => Opcode::LAStore,
-				0x94 => Opcode::LCmp,
-				0x09 => Opcode::LConst0,
-				0x0a => Opcode::LConst1,
-				opcode @ (0x12 | 0x13) => {
-					let cp_index = match opcode {
-						0x12 => { // ldc
-							bytes.get_u8_as_usize()?
-						},
-						0x13 => { // ldc_w
-							bytes.get_u16_as_usize()?
-						},
-						_ => unreachable!(),
-					};
+		while reader.has_elements() {
+			reader.next_instruction();
+			let opcode = Self::read_next_opcode(&mut reader, pool)?;
 
-					match constant_pool.get(cp_index)? {
-						ConstantPoolElement::Integer(int) => {
-							Opcode::LdcInt { int }
-						},
-						ConstantPoolElement::Float(float) => {
-							Opcode::LdcFloat { float }
-						},
-						ConstantPoolElement::String(string) => {
-							Opcode::LdcReferenceString { string }
-						},
-						ConstantPoolElement::Class(class) => {
-							Opcode::LdcReferenceClass { class }
-						},
-						ConstantPoolElement::MethodType(method_type) => {
-							Opcode::LdcReferenceMethodType { method_type }
-						},
-						ConstantPoolElement::MethodHandle(method_handle) => {
-							Opcode::LdcReferenceMethodHandle { method_handle }
-						},
-						_ => todo!("handle error"),
-					}
-				},
-				0x14 => { // ldc2_w
-					let cp_index = bytes.get_u16_as_usize()?;
-					match constant_pool.get(cp_index)? {
-						ConstantPoolElement::Long(long) => {
-							Opcode::Ldc2WLong { long }
-						},
-						ConstantPoolElement::Double(double) => {
-							Opcode::Ldc2WDouble { double }
-						},
-						_ => todo!("handle error"),
-					}
-				},
-				0x6d => Opcode::LDiv,
-				0x16 => Opcode::LLoad {
-					lv_index: bytes.get_u8()?,
-				},
-				0x1e => Opcode::LLoad0,
-				0x1f => Opcode::LLoad1,
-				0x20 => Opcode::LLoad2,
-				0x21 => Opcode::LLoad3,
-				0x69 => Opcode::LMul,
-				0x75 => Opcode::LNeg,
-				0xab => { // LookupSwitch
-					bytes.move_to_next_4_byte_boundary();
+			let instruction_pos = reader.this_instruction_pos;
 
-					let default_target = bytes.get_i32_branchoffset()?;
-					let npairs = bytes.get_i32()?;
-
-					let n = npairs as usize; // TODO: can panic!
-
-					let mut targets = Vec::with_capacity(n);
-					for _ in 0..n {
-						let match_ = bytes.get_i32()?;
-						let target = bytes.get_i32_branchoffset()?;
-
-						targets.push((match_, target));
-					}
-
-					Opcode::LookupSwitch { default_target, npairs, targets }
-				},
-				0x81 => Opcode::LOr,
-				0x71 => Opcode::LRem,
-				0xad => Opcode::LReturn,
-				0x79 => Opcode::LShl,
-				0x7b => Opcode::LShr,
-				0x37 => Opcode::LStore {
-					lv_index: bytes.get_u8()?,
-				},
-				0x3f => Opcode::LStore0,
-				0x40 => Opcode::LStore1,
-				0x41 => Opcode::LStore2,
-				0x42 => Opcode::LStore3,
-				0x65 => Opcode::LSub,
-				0x7d => Opcode::LUShr,
-				0x83 => Opcode::LXor,
-				0xc2 => Opcode::MonitorEnter,
-				0xc3 => Opcode::MonitorExit,
-				0xc5 => Opcode::MultiANewArray {
-					class: constant_pool.get(bytes.get_u16_as_usize()?)?,
-					dimensions: bytes.get_u8()?, // >= 1
-				},
-				0xbb => Opcode::New {
-					class: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0xbc => Opcode::NewArray {
-					a_type: ArrayType::parse(bytes.get_u8()?)?,
-				},
-				0x00 => Opcode::Nop,
-				0x57 => Opcode::Pop,
-				0x58 => Opcode::Pop2,
-				0xb5 => Opcode::PutField {
-					field_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0xb3 => Opcode::PutStatic {
-					field_ref: constant_pool.get(bytes.get_u16_as_usize()?)?,
-				},
-				0xa9 => Opcode::Ret {
-					lv_index: bytes.get_u8()?,
-				},
-				0xb1 => Opcode::Return,
-				0x35 => Opcode::SALoad,
-				0x56 => Opcode::SAStore,
-				0x11 => Opcode::SIPush {
-					byte1: bytes.get_u8()?,
-					byte2: bytes.get_u8()?,
-				},
-				0x5f => Opcode::Swap,
-				0xaa => { // TableSwitch
-					bytes.move_to_next_4_byte_boundary();
-
-					let default_target = bytes.get_i32_branchoffset()?;
-					let low = bytes.get_i32()?;
-					let high = bytes.get_i32()?;
-
-					let n = (high - low + 1) as usize;
-
-					let mut targets = Vec::with_capacity(n);
-					for _ in 0..n {
-						targets.push(bytes.get_i32_branchoffset()?);
-					}
-
-					Opcode::TableSwitch {
-						default_target, low, high, targets,
-					}
-				},
-				0xc4 => { // Wide
-					let opcode = bytes.get_u8()?;
-
-					match opcode {
-						0x19 => Opcode::WideALoad {
-							lv_index: bytes.get_u16()?,
-						},
-						0x3a => Opcode::WideAStore {
-							lv_index: bytes.get_u16()?,
-						},
-						0x18 => Opcode::WideDLoad {
-							lv_index: bytes.get_u16()?,
-						},
-						0x39 => Opcode::WideDStore {
-							lv_index: bytes.get_u16()?,
-						},
-						0x17 => Opcode::WideFLoad {
-							lv_index: bytes.get_u16()?,
-						},
-						0x38 => Opcode::WideFStore {
-							lv_index: bytes.get_u16()?,
-						},
-						0x15 => Opcode::WideILoad {
-							lv_index: bytes.get_u16()?,
-						},
-						0x36 => Opcode::WideIStore {
-							lv_index: bytes.get_u16()?,
-						},
-						0x16 => Opcode::WideLLoad {
-							lv_index: bytes.get_u16()?,
-						},
-						0x37 => Opcode::WideLStore {
-							lv_index: bytes.get_u16()?,
-						},
-						0xa0 => Opcode::WideRet {
-							lv_index: bytes.get_u16()?,
-						},
-						0x84 => Opcode::WideIInc {
-							lv_index: bytes.get_u16()?,
-							const_: bytes.get_i16()?,
-						},
-						_ => todo!(),
-					}
-				},
-				x => todo!("not implemented: {}", x),
-			};
-
-			code.push(opcode);
+			instructions.push((instruction_pos, opcode));
 		}
 
-		// convert the instruction addresses from "old" to "new"
-		code.iter_mut()
-			.for_each(|opcode| {
-				match opcode {
-					Opcode::Goto      { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::GotoW     { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfACmpEq  { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfACmpNe  { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfICmpEq  { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfICmpGe  { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfICmpGt  { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfICmpLe  { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfICmpLt  { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfICmpNe  { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfEq      { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfGe      { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfGt      { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfLe      { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfLt      { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfNe      { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfNonNull { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::IfNull    { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::Jsr       { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::JsrW      { branch_target } => bytes.remap_pc(branch_target),
-					Opcode::LookupSwitch { default_target, targets, .. } => {
-						bytes.remap_pc(default_target);
-						targets.iter_mut().for_each(|(_, target)| bytes.remap_pc(target));
-					},
-					Opcode::TableSwitch { default_target, targets, .. } => {
-						bytes.remap_pc(default_target);
-						targets.iter_mut().for_each(|target| bytes.remap_pc(target));
-					},
-					_ => {},
-				}
-			});
+
+		//panic!();
 
 		Ok(Code {
-			code, pc_map: bytes.pc_map,
+			code: Vec::new()
 		})
 	}
 }

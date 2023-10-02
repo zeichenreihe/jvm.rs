@@ -1,24 +1,11 @@
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use crate::classfile::ClassInfo;
-
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum DescriptorParseError {
-	ArrayDimensionTooLarge(usize, Vec<u8>),
-	UnexpectedEnd(Vec<u8>),
-	NoOpeningParenthesisFound(Vec<u8>), // starts with that even...
-	NoClosingParenthesisFound(Vec<u8>),
-	NoSemicolonFound(Vec<u8>),
-	InvalidDescriptor(u8, Vec<u8>),
-}
-impl Error for DescriptorParseError {}
-impl Display for DescriptorParseError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		std::fmt::Debug::fmt(self, f)
-	}
-}
+use crate::classfile::access::AccessFlagError;
+use crate::classfile::cp::attribute::AttributeTagMismatchError;
+use crate::classfile::cp::ConstantPoolTagMismatchError;
+use crate::classfile::descriptor::DescriptorParseError;
+use crate::classfile::name::ClassName;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct OutOfBoundsError;
@@ -30,40 +17,6 @@ impl Display for OutOfBoundsError {
 }
 
 impl Error for OutOfBoundsError {}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ConstantPoolTagMismatchError {
-	pub expected: String,
-	pub actual: String,
-}
-
-impl Display for ConstantPoolTagMismatchError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("ConstantPoolTagMismatchError")
-			.field("expected", &self.expected)
-			.field("actual", &self.actual)
-			.finish()
-	}
-}
-
-impl Error for ConstantPoolTagMismatchError {}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AttributeTagMismatchError {
-	pub expected: String,
-	pub actual: String,
-}
-
-impl Display for AttributeTagMismatchError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("AttributeTagMismatchError")
-			.field("expected", &self.expected)
-			.field("actual", &self.actual)
-			.finish()
-	}
-}
-
-impl Error for AttributeTagMismatchError {}
 
 #[derive(Debug)]
 pub enum ClassFileParseError {
@@ -80,10 +33,13 @@ pub enum ClassFileParseError {
 
 	ConstantPoolTagMismatchError(ConstantPoolTagMismatchError),
 	AttributeTagMismatchError(AttributeTagMismatchError),
+	AccessFlagError(AccessFlagError),
 
 	NoSuchConstantPoolEntry(usize),
 
 	InvalidMagic(u32),
+	WrongVersion { major: u16, minor: u16 },
+	IllegalInstruction(&'static str),
 
 	IoError(std::io::Error),
 	OutOfBoundsError(OutOfBoundsError),
@@ -131,6 +87,11 @@ impl From<AttributeTagMismatchError> for ClassFileParseError {
 		ClassFileParseError::AttributeTagMismatchError(value)
 	}
 }
+impl From<AccessFlagError> for ClassFileParseError {
+	fn from(value: AccessFlagError) -> Self {
+		ClassFileParseError::AccessFlagError(value)
+	}
+}
 
 impl From<Infallible> for ClassFileParseError {
 	fn from(_: Infallible) -> Self {
@@ -149,7 +110,8 @@ pub enum ClassLoadError {
 	ParseError(ClassFileParseError),
 	DescriptorParseError(DescriptorParseError),
 
-	NoClassDefFoundError(ClassInfo),
+	// java classes:
+	NoClassDefFoundError(ClassName),
 	LinkageError(),
 	ClassFormatError(),
 	/* subclass */ UnsupportedClassVersionError(),
@@ -157,12 +119,7 @@ pub enum ClassLoadError {
 	ClassCircularityError(),
 	VerifyError(),
 }
-/*
-impl From<ClassFileParseError> for ClassLoadError {
-	fn from(value: ClassFileParseError) -> Self {
-		Self::ParseError(value)
-	}
-}*/
+
 impl From<DescriptorParseError> for ClassLoadError {
 	fn from(value: DescriptorParseError) -> Self {
 		Self::DescriptorParseError(value)
