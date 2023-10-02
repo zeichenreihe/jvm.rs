@@ -5,7 +5,7 @@ use crate::class_instance::Class;
 use crate::class_loader::ClassLoader;
 use crate::code::Code;
 use crate::errors::{OutOfBoundsError, RuntimeError};
-use crate::classfile::instruction::Opcode;
+use classfile::instruction::Opcode;
 
 #[derive(Debug, Clone, Copy)]
 pub enum StackFrameLvType {

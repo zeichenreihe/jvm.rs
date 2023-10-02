@@ -1,4 +1,4 @@
-use crate::classfile::instruction::{LvIndex, Opcode};
+use crate::instruction::{LvIndex, Opcode};
 
 enum LegacyOpcode {
 	Modern(Opcode),

@@ -6,7 +6,6 @@ use crate::errors::ClassFileParseError;
 
 mod verifier;
 
-
 pub mod instruction;
 
 pub mod name;
@@ -15,11 +14,11 @@ pub mod access;
 
 pub mod cp;
 
-use crate::classfile::access::{ClassInfoAccess, FieldInfoAccess, MethodInfoAccess};
-use crate::classfile::cp::attribute::{AttributeInfo, CodeAttribute, ConstantValueAttribute};
-use crate::classfile::cp::Pool;
-use crate::classfile::descriptor::{FieldDescriptor, MethodDescriptor};
-use crate::classfile::name::{ClassName, FieldName, MethodName};
+use crate::access::{ClassInfoAccess, FieldInfoAccess, MethodInfoAccess};
+use crate::cp::attribute::{AttributeInfo, CodeAttribute, ConstantValueAttribute};
+use crate::cp::Pool;
+use crate::descriptor::{FieldDescriptor, MethodDescriptor};
+use crate::name::{ClassName, FieldName, MethodName};
 
 
 macro_rules! gen_parse_u_int {

@@ -1,8 +1,8 @@
-use crate::classfile::cp::{FieldRefInfo, InterfaceMethodRefInfo, InvokeDynamicInfo, MethodHandleInfo, MethodRefInfo};
-use crate::classfile::descriptor::MethodDescriptor;
-use crate::classfile::instruction::{BranchTarget, ConditionalBranch, LvIndex, UnconditionalBranch};
-use crate::classfile::name::ClassName;
-use crate::classfile::verifier::VerificationType;
+use crate::cp::{FieldRefInfo, InterfaceMethodRefInfo, InvokeDynamicInfo, MethodHandleInfo, MethodRefInfo};
+use crate::descriptor::MethodDescriptor;
+use crate::instruction::{BranchTarget, ConditionalBranch, LvIndex, UnconditionalBranch};
+use crate::name::ClassName;
+use crate::verifier::VerificationType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArrayType {}

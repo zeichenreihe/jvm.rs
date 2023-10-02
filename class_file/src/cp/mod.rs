@@ -1,8 +1,8 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use crate::classfile::descriptor::{FieldDescriptor, MethodDescriptor};
-use crate::classfile::MyRead;
-use crate::classfile::name::{ClassName, FieldName, MethodName};
+use crate::descriptor::{FieldDescriptor, MethodDescriptor};
+use crate::MyRead;
+use crate::name::{ClassName, FieldName, MethodName};
 use crate::errors::{ClassFileParseError, OutOfBoundsError};
 
 pub mod attribute;

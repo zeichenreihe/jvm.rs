@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
-use crate::classfile::name::ClassName;
+use crate::name::ClassName;
 
 #[derive(Debug)]
 pub struct DescriptorParseError(&'static str, Vec<u8>);

@@ -2,10 +2,10 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io::Read;
 use itertools::{Either, Itertools};
-use crate::classfile::cp::{ConstantPoolTagMismatchError, MethodHandleInfo, Pool, PoolEntry};
-use crate::classfile::descriptor::MethodDescriptor;
-use crate::classfile::MyRead;
-use crate::classfile::name::{ClassName, MethodName};
+use crate::cp::{ConstantPoolTagMismatchError, MethodHandleInfo, Pool, PoolEntry};
+use crate::descriptor::MethodDescriptor;
+use crate::MyRead;
+use crate::name::{ClassName, MethodName};
 use crate::code::Code;
 use crate::errors::ClassFileParseError;
 

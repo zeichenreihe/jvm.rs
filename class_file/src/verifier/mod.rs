@@ -1,9 +1,9 @@
 use std::borrow::Borrow;
 use itertools::Itertools;
-use crate::classfile::descriptor::MethodDescriptor;
-use crate::classfile::instruction::{LvIndex, Opcode};
-use crate::classfile::MethodInfoAccess as MethodAccessFlags;
-use crate::classfile::name::{ClassName, MethodName};
+use crate::descriptor::MethodDescriptor;
+use crate::instruction::{LvIndex, Opcode};
+use crate::MethodInfoAccess as MethodAccessFlags;
+use crate::name::{ClassName, MethodName};
 
 trait FailAsBool {
 	fn fail(&self, message: &str) -> Bool;
@@ -1723,7 +1723,7 @@ impl LocalVariables {
 	/// Hence, modifying `L[N]` may require modifying `L[N+1]` (because the type will occupy both the `N` and `N+1` slots) or
 	/// `L[N-1]` (because local `N` used to be the upper half of the two word value/type starting at local `N-1`, and so local
 	/// `N-1` must be invalidated), or both. This is described further below. We start at `L[0]` and count up.
-	/// ```
+	/// ```prolog
 	/// modifyLocalVariable(Index, Type, Locals, NewLocals) :-
 	///     modifyLocalVariable(0, Index, Type, Locals, NewLocals).
 	/// ```
@@ -1733,7 +1733,7 @@ impl LocalVariables {
 	/// If `I < Index-1`, just copy the input to the output and recurse forward. If `I = Index-1`, the type of local `I` may change.
 	/// This can occur if `L[I]` has a type of size `2`. Once we set `L[I+1]` to the new type (and the corresponding value), the type/value
 	/// of `L[I]` will be invalidated, as its upper half will be trashed. Then we recurse forward.
-	/// ```
+	/// ```prolog
 	/// modifyLocalVariable(I, Index, Type,
 	///                     [Locals1 | LocalsRest],
 	///                     [Locals1 | NextLocalsRest] ) :-
@@ -1749,7 +1749,7 @@ impl LocalVariables {
 	/// ```
 	/// When we find the variable, and it only occupies one word, we change it to `Type` and we're done. When we find the variable, and it
 	/// occupies two words, we change its type to `Type` and the next word to `top`.
-	/// ```
+	/// ```prolog
 	/// modifyLocalVariable(Index, Index, Type,
 	///                     [_ | LocalsRest], [Type | LocalsRest]) :-
 	///     sizeOf(Type, 1).
