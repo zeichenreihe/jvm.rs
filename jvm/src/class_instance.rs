@@ -1,11 +1,11 @@
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::rc::Rc;
-use crate::classfile::{ClassFile, FieldInfo};
-use crate::classfile::cp::attribute::ConstantValueAttribute;
-use crate::classfile::descriptor::{BaseOrObjectType, FieldDescriptor};
-use crate::classfile::name::FieldName;
-use crate::errors::OutOfBoundsError;
+use class_file::{ClassFile, FieldInfo};
+use class_file::cp::attribute::ConstantValueAttribute;
+use class_file::descriptor::{BaseOrObjectType, FieldDescriptor};
+use class_file::name::FieldName;
 use crate::executor::{J_NULL, JInt, JReference, StackFrameLvType};
 
 
@@ -17,7 +17,7 @@ pub struct Field {
 }
 
 impl Field {
-	pub fn load<C: ClassData>(&self, class_data: &Rc<C>) -> Result<StackFrameLvType, OutOfBoundsError> {
+	pub fn load<C: ClassData>(&self, class_data: &Rc<C>) -> Result<StackFrameLvType> {
 		match self.field.descriptor.base_type {
 			BaseOrObjectType::B => todo!(),
 			BaseOrObjectType::C => todo!(),
@@ -30,14 +30,14 @@ impl Field {
 			BaseOrObjectType::Object(_) => Ok(StackFrameLvType::Reference(class_data.get_reference(self.field_offset)?)),
 		}
 	}
-	pub fn store_initial_value<C: ClassData>(&self, class_data: &mut C) -> Result<(), OutOfBoundsError> {
+	pub fn store_initial_value<C: ClassData>(&self, class_data: &mut C) -> Result<()> {
 		if let Some(constant_value) = &self.field.constant_value {
 			match constant_value {
 				ConstantValueAttribute::Long(_) => todo!(),
 				ConstantValueAttribute::Float(_) => todo!(),
 				ConstantValueAttribute::Double(_) => todo!(),
 				ConstantValueAttribute::Integer(integer) => {
-					class_data.put_int(self.field_offset, integer.bytes)
+					class_data.put_int(self.field_offset, 0) // TODO: implement
 				}
 				ConstantValueAttribute::String(_) => todo!(),
 			}
@@ -107,36 +107,36 @@ pub trait ClassData {
 
 	/// Returns a [JInt] from the class instance.
 	#[inline]
-	fn get_int(&self, offset: usize) -> Result<JInt, OutOfBoundsError> {
+	fn get_int(&self, offset: usize) -> Result<JInt> {
 		let slice = self.get_data()
-			.get(offset..).ok_or(OutOfBoundsError)?
-			.get(..size_of::<JInt>()).ok_or(OutOfBoundsError)?
+			.get(offset..).ok_or_else(|| anyhow!("out of bounds"))? // TODO: improve error messages
+			.get(..size_of::<JInt>()).ok_or_else(|| anyhow!("out of bounds"))?
 			.try_into().expect("unreachable: the slice is guaranteed to be 4 in length");
 		Ok(JInt::from_ne_bytes(slice))
 	}
 	/// Stores a [JInt] into the class instance.
 	#[inline]
-	fn put_int(&mut self, offset: usize, int: JInt) -> Result<(), OutOfBoundsError> {
+	fn put_int(&mut self, offset: usize, int: JInt) -> Result<()> {
 		let slice = self.get_data_mut()
-			.get_mut(offset..).ok_or(OutOfBoundsError)?
-			.get_mut(..size_of::<JInt>()).ok_or(OutOfBoundsError)?;
+			.get_mut(offset..).ok_or_else(|| anyhow!("out of bounds"))?
+			.get_mut(..size_of::<JInt>()).ok_or_else(|| anyhow!("out of bounds"))?;
 		slice.copy_from_slice(&int.to_ne_bytes());
 		Ok(())
 	}
 
 	#[inline]
-	fn get_reference(&self, offset: usize) -> Result<JReference, OutOfBoundsError> {
+	fn get_reference(&self, offset: usize) -> Result<JReference> {
 		let slice = self.get_data()
-			.get(offset..).ok_or(OutOfBoundsError)?
-			.get(..size_of::<JReference>()).ok_or(OutOfBoundsError)?
+			.get(offset..).ok_or_else(|| anyhow!("out of bounds"))?
+			.get(..size_of::<JReference>()).ok_or_else(|| anyhow!("out of bounds"))?
 			.try_into().expect("unreachable: the slice is guaranteed to be 4 in length");
 		Ok(JReference::from_ne_bytes(slice))
 	}
 	#[inline]
-	fn put_reference(&mut self, offset: usize, reference: JReference) -> Result<(), OutOfBoundsError> {
+	fn put_reference(&mut self, offset: usize, reference: JReference) -> Result<()> {
 		let slice = self.get_data_mut()
-			.get_mut(offset..).ok_or(OutOfBoundsError)?
-			.get_mut(..size_of::<JReference>()).ok_or(OutOfBoundsError)?;
+			.get_mut(offset..).ok_or_else(|| anyhow!("out of bounds"))?
+			.get_mut(..size_of::<JReference>()).ok_or_else(|| anyhow!("out of bounds"))?;
 		slice.copy_from_slice(&reference.to_ne_bytes());
 		Ok(())
 	}

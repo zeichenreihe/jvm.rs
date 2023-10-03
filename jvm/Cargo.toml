@@ -9,6 +9,8 @@
 [dependencies]
     class_file = { path = "../class_file" }
 
+    anyhow = "1.0.75"
+
     zip = "0.6.0"
 
     itertools = "0.11.0"

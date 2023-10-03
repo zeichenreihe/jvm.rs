@@ -133,6 +133,7 @@ impl TryFrom<&[u8]> for MethodDescriptor {
 		}
 
 		let return_type = if matches!(iter.peek(), Some(b'V')) {
+			iter.next(); // consume 'V'
 			None
 		} else {
 			Some(FieldDescriptor::parse_iter(&mut iter, value)?)
@@ -151,8 +152,6 @@ impl TryFrom<&[u8]> for MethodDescriptor {
 
 #[cfg(test)]
 mod test {
-	use crate::classfile::descriptor::{BaseOrObjectType, FieldDescriptor, MethodDescriptor};
-	use crate::classfile::name::ClassName;
 	use crate::descriptor::{BaseOrObjectType, FieldDescriptor, MethodDescriptor};
 	use crate::name::ClassName;
 

@@ -1,8 +1,7 @@
 use anyhow::{bail, Result};
 use crate::cp::{FieldRefInfo, InterfaceMethodRefInfo, InvokeDynamicInfo, MethodHandleInfo, MethodRefInfo, Pool, PoolEntry};
 use crate::descriptor::MethodDescriptor;
-use crate::instruction::{BranchTarget, ConditionalBranch, LvIndex, UnconditionalBranch};
-use crate::MyRead;
+use crate::instruction::{BranchTarget, CodeReader, LvIndex};
 use crate::name::ClassName;
 use crate::verifier::VerificationType;
 
@@ -15,6 +14,12 @@ type StringInfo = i32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArrayType {}
+
+impl ArrayType {
+	fn parse(_: u8) -> Result<ArrayType> {
+		todo!()
+	}
+}
 
 //#[warn(missing_docs)]
 
@@ -278,9 +283,7 @@ pub enum Opcode {
 	///
 	/// # Description
 	/// The immediate `byte` is sign-extended to an `int` value. That value is pushed onto the operand stack.
-	BIPush(), // {
-		//byte: u8,
-	//},
+	BIPush(u8),
 	/// Implementation instruction.
 	/// This opcode is intended to be used by debuggers to implement breakpoints.
 	Breakpoint,
@@ -435,7 +438,7 @@ pub enum Opcode {
 	/// branchoffset = (branchbyte1 << 24) | (branchbyte2 << 16) | (branchbyte3 << 8) | branchbyte4
 	/// ```
 	/// Executions proceeds at that offset from the address of the opcode of this [Opcode::GotoW] instruction.
-	Goto(UnconditionalBranch),
+	Goto(BranchTarget),
 	I2b,
 	I2c,
 	I2d,
@@ -448,22 +451,22 @@ pub enum Opcode {
 	IAStore,
 	IConstM1, IConst0, IConst1, IConst2, IConst3, IConst4, IConst5,
 	IDiv,
-	IfACmpEq(ConditionalBranch),
-	IfACmpNe(ConditionalBranch),
-	IfICmpEq(ConditionalBranch),
-	IfICmpGe(ConditionalBranch),
-	IfICmpGt(ConditionalBranch),
-	IfICmpLe(ConditionalBranch),
-	IfICmpLt(ConditionalBranch),
-	IfICmpNe(ConditionalBranch),
-	IfEq(ConditionalBranch),
-	IfGe(ConditionalBranch),
-	IfGt(ConditionalBranch),
-	IfLe(ConditionalBranch),
-	IfLt(ConditionalBranch),
-	IfNe(ConditionalBranch),
-	IfNonNull(ConditionalBranch),
-	IfNull(ConditionalBranch),
+	IfACmpEq(BranchTarget),
+	IfACmpNe(BranchTarget),
+	IfICmpEq(BranchTarget),
+	IfICmpGe(BranchTarget),
+	IfICmpGt(BranchTarget),
+	IfICmpLe(BranchTarget),
+	IfICmpLt(BranchTarget),
+	IfICmpNe(BranchTarget),
+	IfEq(BranchTarget),
+	IfGe(BranchTarget),
+	IfGt(BranchTarget),
+	IfLe(BranchTarget),
+	IfLt(BranchTarget),
+	IfNe(BranchTarget),
+	IfNonNull(BranchTarget),
+	IfNull(BranchTarget),
 	IInc { lv_index: LvIndex, const_: i32 },
 	ILoad(LvIndex),
 	ImpDep1, ImpDep2,
@@ -546,17 +549,17 @@ pub enum Opcode {
 	/// the constant pool (§4.4.4) must be taken from the float value set.
 	///
 	/// The `ldc_w` instruction is identical to the `ldc` instruction except for its wider run-time constant pool index.
-	LdcInt { int: IntegerInfo },
+	LdcInt(IntegerInfo),
 	/// See [Opcode::LdcInt].
-	LdcFloat { float: FloatInfo },
+	LdcFloat(FloatInfo),
 	/// See [Opcode::LdcInt].
-	LdcReferenceString { string: StringInfo },
+	LdcReferenceString(StringInfo),
 	/// See [Opcode::LdcInt].
 	LdcReferenceClass(ClassName),
 	/// See [Opcode::LdcInt].
-	LdcReferenceMethodType { method_type: MethodDescriptor },
+	LdcReferenceMethodType(MethodDescriptor),
 	/// See [Opcode::LdcInt].
-	LdcReferenceMethodHandle { method_handle: MethodHandleInfo },
+	LdcReferenceMethodHandle(MethodHandleInfo),
 	/// Push long or double from run-time constant pool (wide index).
 	///
 	/// # Format
@@ -583,9 +586,9 @@ pub enum Opcode {
 	///
 	/// The `ldc2_w` instruction can only be used to push a value of type `double` taken from the double value set (§2.3.2) because a constant of type `double`
 	/// in the constant pool (§4.4.5) must be taken from the double value set.
-	Ldc2WDouble { double: DoubleInfo },
+	Ldc2WDouble(DoubleInfo),
 	/// See [Opcode::Ldc2WDouble].
-	Ldc2WLong { long: LongInfo },
+	Ldc2WLong(LongInfo),
 	LDiv,
 	LLoad(LvIndex),
 	LMul,
@@ -682,7 +685,7 @@ pub enum Opcode {
 	/// created and must be non-negative. The `count1` is the desired length in the first dimension, `count2` in the second, etc.
 	///
 	/// ...; todo: fill in
-	MultiANewArray(VerificationType, u8),
+	MultiANewArray(VerificationType, usize),
 	New(VerificationType),
 	NewArray { a_type: ArrayType },
 	/// Do nothing.
@@ -718,7 +721,7 @@ pub enum Opcode {
 	/// # Description
 	/// The immediate unsigned `byte1` and `byte2` values are assembled into an intermediate `short` where the value of the `short` is `(byte1 << 8) | byte2`.
 	/// The intermediate value is then sign-extended to an `int` value. That value is pushed onto the operand stack.
-	SIPush(), // { byte1: u8, byte2: u8 },
+	SIPush(i16),
 	/// Swap the top two operand stack values.
 	///
 	/// # Operand Stack
@@ -789,7 +792,7 @@ pub enum Opcode {
 }
 
 impl Opcode {
-	pub(crate) fn parse(reader: &mut impl MyRead, pool: &Pool) -> Result<Opcode> {
+	pub(crate) fn parse(reader: &mut impl CodeReader, pool: &Pool) -> Result<Opcode> {
 		match reader.read_u1()? {
 			0x32 => Ok(Opcode::AALoad),
 			0x53 => Ok(Opcode::AAStore),
@@ -799,9 +802,7 @@ impl Opcode {
 			0x2b => Ok(Opcode::ALoad(LvIndex(1))),
 			0x2c => Ok(Opcode::ALoad(LvIndex(2))),
 			0x2d => Ok(Opcode::ALoad(LvIndex(3))),
-			0xbd => Ok(Opcode::ANewArray {
-				class: pool.get(reader.read_u2_as_usize()?)?
-			}),
+			0xbd => Ok(Opcode::ANewArray(pool.get(reader.read_u2_as_usize()?)?)),
 			0xb0 => Ok(Opcode::AReturn),
 			0xbe => Ok(Opcode::ArrayLength),
 			0x3a => Ok(Opcode::AStore(LvIndex(reader.read_u1_as_usize()?))),
@@ -812,15 +813,11 @@ impl Opcode {
 			0xbf => Ok(Opcode::AThrow),
 			0x33 => Ok(Opcode::BALoad),
 			0x54 => Ok(Opcode::BAStore),
-			0x10 => Ok(Opcode::BIPush {
-				byte: reader.read_u1()?,
-			}),
+			0x10 => Ok(Opcode::BIPush(reader.read_u1()?)),
 			0xca => Ok(Opcode::Breakpoint),
 			0x34 => Ok(Opcode::CALoad),
 			0x55 => Ok(Opcode::CAStore),
-			0xc0 => Ok(Opcode::CheckCast {
-				class: pool.get(reader.read_u2_as_usize()?)?,
-			}),
+			0xc0 => Ok(Opcode::CheckCast(pool.get(reader.read_u2_as_usize()?)?)),
 			0x90 => Ok(Opcode::D2f),
 			0x8e => Ok(Opcode::D2i),
 			0x8f => Ok(Opcode::D2l),
@@ -882,14 +879,8 @@ impl Opcode {
 			0x66 => Ok(Opcode::FSub),
 			0xb4 => Ok(Opcode::GetField(pool.get(reader.read_u2_as_usize()?)?)),
 			0xb2 => Ok(Opcode::GetStatic(pool.get(reader.read_u2_as_usize()?)?)),
-			0xa7 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				Ok(Opcode::Goto { branch_target })
-			},
-			0xc8 => {
-				let branch_target = reader.get_i32_branchoffset()?;
-				Ok(Opcode::Goto { branch_target })
-			},
+			0xa7 => Ok(Opcode::Goto(reader.read_i16_branchoffset()?)),
+			0xc8 => Ok(Opcode::Goto(reader.read_i32_branchoffset()?)),
 			0x91 => Ok(Opcode::I2b),
 			0x92 => Ok(Opcode::I2c),
 			0x87 => Ok(Opcode::I2d),
@@ -908,86 +899,22 @@ impl Opcode {
 			0x07 => Ok(Opcode::IConst4),
 			0x08 => Ok(Opcode::IConst5),
 			0x6c => Ok(Opcode::IDiv),
-			0xa5 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfACmpEq { branch_target, else_branch_target })
-			},
-			0xa6 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfACmpNe { branch_target, else_branch_target })
-			},
-			0x9f => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfICmpEq { branch_target, else_branch_target })
-			},
-			0xa2 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfICmpGe { branch_target, else_branch_target })
-			},
-			0xa3 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfICmpGt { branch_target, else_branch_target })
-			},
-			0xa4 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfICmpLe { branch_target, else_branch_target })
-			},
-			0xa1 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfICmpLt { branch_target, else_branch_target })
-			},
-			0xa0 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfICmpNe { branch_target, else_branch_target })
-			},
-			0x99 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfEq { branch_target, else_branch_target })
-			},
-			0x9c => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfGe { branch_target, else_branch_target })
-			},
-			0x9d => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfGt { branch_target, else_branch_target })
-			},
-			0x9e => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfLe { branch_target, else_branch_target })
-			},
-			0x9b => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfLt { branch_target, else_branch_target })
-			},
-			0x9a => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfNe { branch_target, else_branch_target })
-			},
-			0xc7 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfNonNull { branch_target, else_branch_target })
-			},
-			0xc6 => {
-				let branch_target = reader.get_i16_branchoffset()?;
-				let else_branch_target = reader.pos;
-				Ok(Opcode::IfNull { branch_target, else_branch_target })
-			},
+			0xa5 => Ok(Opcode::IfACmpEq(reader.read_i16_branchoffset()?)),
+			0xa6 => Ok(Opcode::IfACmpNe(reader.read_i16_branchoffset()?)),
+			0x9f => Ok(Opcode::IfICmpEq(reader.read_i16_branchoffset()?)),
+			0xa2 => Ok(Opcode::IfICmpGe(reader.read_i16_branchoffset()?)),
+			0xa3 => Ok(Opcode::IfICmpGt(reader.read_i16_branchoffset()?)),
+			0xa4 => Ok(Opcode::IfICmpLe(reader.read_i16_branchoffset()?)),
+			0xa1 => Ok(Opcode::IfICmpLt(reader.read_i16_branchoffset()?)),
+			0xa0 => Ok(Opcode::IfICmpNe(reader.read_i16_branchoffset()?)),
+			0x99 => Ok(Opcode::IfEq(reader.read_i16_branchoffset()?)),
+			0x9c => Ok(Opcode::IfGe(reader.read_i16_branchoffset()?)),
+			0x9d => Ok(Opcode::IfGt(reader.read_i16_branchoffset()?)),
+			0x9e => Ok(Opcode::IfLe(reader.read_i16_branchoffset()?)),
+			0x9b => Ok(Opcode::IfLt(reader.read_i16_branchoffset()?)),
+			0x9a => Ok(Opcode::IfNe(reader.read_i16_branchoffset()?)),
+			0xc7 => Ok(Opcode::IfNonNull(reader.read_i16_branchoffset()?)),
+			0xc6 => Ok(Opcode::IfNull(reader.read_i16_branchoffset()?)),
 			0x84 => Ok(Opcode::IInc {
 				lv_index: LvIndex(reader.read_u1_as_usize()?),
 				const_: reader.read_u1()? as i32,
@@ -1001,9 +928,7 @@ impl Opcode {
 			0xff => Ok(Opcode::ImpDep2),
 			0x68 => Ok(Opcode::IMul),
 			0x74 => Ok(Opcode::INeg),
-			0xc1 => Ok(Opcode::InstanceOf {
-				class: pool.get(reader.read_u2_as_usize()?)?,
-			}),
+			0xc1 => Ok(Opcode::InstanceOf(pool.get(reader.read_u2_as_usize()?)?)),
 			0xba => Ok(Opcode::InvokeDynamic {
 				call_site: pool.get(reader.read_u2_as_usize()?)?,
 				zero1: reader.read_u1()?, // == 0
@@ -1049,38 +974,23 @@ impl Opcode {
 					_ => unreachable!(),
 				};
 
-				Ok(match pool.get(cp_index)? {
-					PoolEntry::Integer(int) => {
-						Opcode::LdcInt { int }
-					},
-					PoolEntry::Float(float) => {
-						Opcode::LdcFloat { float }
-					},
-					PoolEntry::String(string) => {
-						Opcode::LdcReferenceString { string }
-					},
-					PoolEntry::Class(class) => {
-						Opcode::LdcReferenceClass(class)
-					},
-					PoolEntry::MethodType(method_type) => {
-						Opcode::LdcReferenceMethodType { method_type }
-					},
-					PoolEntry::MethodHandle(method_handle, _) => {
-						Opcode::LdcReferenceMethodHandle { method_handle }
-					},
-					_ => todo!("handle error"),
-				})
+				match pool.get::<&PoolEntry>(cp_index)? {
+					// TODO: when we have proper int,float,long,double types, we can update this (see also ldc2_w)
+					PoolEntry::Integer(_)         => Ok(Opcode::LdcInt                  (pool.get(cp_index)?)),
+					PoolEntry::Float(_)           => Ok(Opcode::LdcFloat                (pool.get(cp_index)?)),
+					PoolEntry::String(_)          => Ok(Opcode::LdcReferenceString      (pool.get(cp_index)?)),
+					PoolEntry::ClassName(_)       => Ok(Opcode::LdcReferenceClass       (pool.get(cp_index)?)),
+					PoolEntry::MethodType(_)      => Ok(Opcode::LdcReferenceMethodType  (pool.get(cp_index)?)),
+					PoolEntry::MethodHandle(_, _) => Ok(Opcode::LdcReferenceMethodHandle(pool.get(cp_index)?)),
+					entry => bail!("ldc/ldc_w can only be used for int/float/String/Class/method type/method handle, got: {entry:?}"),
+				}
 			},
 			0x14 => { // ldc2_w
 				let cp_index = reader.read_u2_as_usize()?;
-				match pool.get(cp_index)? {
-					PoolEntry::Long(long) => {
-						Opcode::Ldc2WLong { long }
-					},
-					PoolEntry::Double(double) => {
-						Opcode::Ldc2WDouble { double }
-					},
-					_ => todo!("handle error"),
+				match pool.get::<&PoolEntry>(cp_index)? {
+					PoolEntry::Long {..}   => Ok(Opcode::Ldc2WLong  (pool.get(cp_index)?)),
+					PoolEntry::Double {..} => Ok(Opcode::Ldc2WDouble(pool.get(cp_index)?)),
+					entry => bail!("ldc2_w can only be used for long/double, got: {entry:?}"),
 				}
 			},
 			0x6d => Ok(Opcode::LDiv),
@@ -1092,15 +1002,15 @@ impl Opcode {
 			0x69 => Ok(Opcode::LMul),
 			0x75 => Ok(Opcode::LNeg),
 			0xab => { // LookupSwitch
-				reader.move_to_next_4_byte_boundary();
+				reader.move_to_next_4_byte_boundary()?;
 
-				let default_target = reader.get_i32_branchoffset()?;
+				let default_target = reader.read_i32_branchoffset()?;
 				let npairs = reader.read_u4_as_usize()?;
 
 				let mut targets = Vec::with_capacity(npairs);
 				for _ in 0..npairs {
-					let match_ = reader.get_i32()?;
-					let branch_target = reader.get_i32_branchoffset()?;
+					let match_ = reader.read_i32()?;
+					let branch_target = reader.read_i32_branchoffset()?;
 
 					targets.push((match_, branch_target));
 				}
@@ -1122,13 +1032,11 @@ impl Opcode {
 			0x83 => Ok(Opcode::LXor),
 			0xc2 => Ok(Opcode::MonitorEnter),
 			0xc3 => Ok(Opcode::MonitorExit),
-			0xc5 => Ok(Opcode::MultiANewArray {
-				class: pool.get(reader.get_u16_as_usize()?)?,
-				dimensions: reader.read_u1()?, // >= 1
-			}),
-			0xbb => Ok(Opcode::New {
-				class: pool.get(reader.read_u2_as_usize()?)?,
-			}),
+			0xc5 => Ok(Opcode::MultiANewArray(
+				pool.get(reader.read_u2_as_usize()?)?,
+				reader.read_u1_as_usize()? // >= 1
+			)),
+			0xbb => Ok(Opcode::New(pool.get(reader.read_u2_as_usize()?)?)),
 			0xbc => Ok(Opcode::NewArray {
 				a_type: ArrayType::parse(reader.read_u1()?)?,
 			}),
@@ -1141,23 +1049,20 @@ impl Opcode {
 			0xb1 => Ok(Opcode::Return),
 			0x35 => Ok(Opcode::SALoad),
 			0x56 => Ok(Opcode::SAStore),
-			0x11 => Ok(Opcode::SIPush {
-				byte1: reader.read_u1()?,
-				byte2: reader.read_u1()?,
-			}),
+			0x11 => Ok(Opcode::SIPush(reader.read_i16()?)),
 			0x5f => Ok(Opcode::Swap),
 			0xaa => { // TableSwitch
-				reader.move_to_next_4_byte_boundary();
+				reader.move_to_next_4_byte_boundary()?;
 
-				let default_target = reader.get_i32_branchoffset()?;
-				let low = reader.get_i32()?;
-				let high = reader.get_i32()?;
+				let default_target = reader.read_i32_branchoffset()?;
+				let low = reader.read_i32()?;
+				let high = reader.read_i32()?;
 
 				let n = (high - low + 1) as usize; // TODO: could panic?
 
 				let mut targets = Vec::with_capacity(n);
 				for _ in 0..n {
-					let branch_target = reader.get_i32_branchoffset()?;
+					let branch_target = reader.read_i32_branchoffset()?;
 					targets.push(branch_target);
 				}
 
@@ -1183,7 +1088,7 @@ impl Opcode {
 					0xa0 => bail!("wide ret instruction is not legal in class files of version 52.0 or greater"),
 					0x84 => Ok(Opcode::IInc {
 						lv_index: LvIndex(reader.read_u2_as_usize()?),
-						const_: reader.get_i16()? as i32,
+						const_: reader.read_i16()? as i32,
 					}),
 					opcode => bail!("illegal wide opcode: {opcode:x}"),
 				}

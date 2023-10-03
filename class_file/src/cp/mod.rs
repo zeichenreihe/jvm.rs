@@ -1,7 +1,8 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use crate::descriptor::{FieldDescriptor, MethodDescriptor};
 use crate::MyRead;
 use crate::name::{ClassName, FieldName, MethodName};
+use crate::verifier::VerificationType;
 
 pub mod attribute;
 
@@ -12,16 +13,25 @@ impl Pool {
 	pub fn parse<R: MyRead>(reader: &mut R) -> Result<Pool> {
 		let count = reader.read_u2_as_usize()?;
 		let mut vec = Vec::with_capacity(count);
+
 		vec.push(PoolEntry::None); // constant pool indices are based on 0
+
 		for _ in 0..count {
-			vec.push(PoolEntry::parse(reader)?);
+			let entry = PoolEntry::parse(reader)
+				.with_context(|| "while parsing the constant pool")?;
+
+			vec.push(entry);
 		}
 		Ok(Pool(vec))
 	}
-	pub fn get<T: FromPoolEntry>(&self, index: usize) -> Result<T> {
+	pub fn get<'a, T>(&'a self, index: usize) -> Result<T>
+	where
+		T: FromPoolEntry<'a>
+	{
 		let entry = self.0.get(index)
-			.ok_or_else(|| anyhow!("index out of bounds: {index} for {}", self.0.len()))?;
+			.ok_or_else(|| anyhow!("constant pool index out of bounds: {index} for pool size {}", self.0.len()))?;
 		T::from_pool_entry(self, entry)
+			.with_context(|| anyhow!("while getting constant pool item at {index}"))
 	}
 }
 
@@ -30,20 +40,35 @@ macro_rules! create_err {
 		bail!("expected tag of {}, but got {:?}", stringify!($expected), $entry)
 	}
 }
-trait FromPoolEntry {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self>
+pub trait FromPoolEntry<'a> {
+	fn from_pool_entry(pool: &'a Pool, entry: &'a PoolEntry) -> Result<Self>
 	where
 		Self: Sized;
 }
 
-impl FromPoolEntry for &PoolEntry {
-	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
+
+
+impl FromPoolEntry<'_> for VerificationType {
+	// TODO: remove this
+	fn from_pool_entry(_: &Pool, _: &PoolEntry) -> Result<Self> {
+		todo!()
+	}
+}
+impl FromPoolEntry<'_> for i32 {
+	// TODO: remove this
+	fn from_pool_entry(_: &Pool, _: &PoolEntry) -> Result<Self> {
+		todo!()
+	}
+}
+
+impl<'a> FromPoolEntry<'a> for &'a PoolEntry {
+	fn from_pool_entry(_: &Pool, entry: &'a PoolEntry) -> Result<Self> {
 		Ok(entry)
 	}
 }
 
-impl<T: FromPoolEntry> FromPoolEntry for Option<T> {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
+impl<'a, T: FromPoolEntry<'a>> FromPoolEntry<'a> for Option<T> {
+	fn from_pool_entry(pool: &'a Pool, entry: &'a PoolEntry) -> Result<Self> {
 		match entry {
 			// this works since the index `0` refers to the very first element, and that is PoolEntry::None...
 			PoolEntry::None => Ok(None),
@@ -52,8 +77,8 @@ impl<T: FromPoolEntry> FromPoolEntry for Option<T> {
 	}
 }
 
-impl FromPoolEntry for &Vec<u8> {
-	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
+impl<'a> FromPoolEntry<'a> for &'a Vec<u8> {
+	fn from_pool_entry(_: &Pool, entry: &'a PoolEntry) -> Result<Self> {
 		match entry {
 			PoolEntry::Utf8(vec) => Ok(vec),
 			_ => create_err!(entry, PoolEntry::Utf8),
@@ -61,7 +86,7 @@ impl FromPoolEntry for &Vec<u8> {
 	}
 }
 
-impl FromPoolEntry for Utf8Info {
+impl FromPoolEntry<'_> for Utf8Info {
 	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		match entry {
 			PoolEntry::Utf8(vec) => Ok(Utf8Info {
@@ -72,10 +97,10 @@ impl FromPoolEntry for Utf8Info {
 	}
 }
 
-impl FromPoolEntry for ClassName {
+impl FromPoolEntry<'_> for ClassName {
 	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::ClassName(index) = entry {
-			if let PoolEntry::Utf8(vec) = pool.get::<&_>(*index)? {
+			if let PoolEntry::Utf8(vec) = pool.get::<&PoolEntry>(*index)? {
 				Ok(ClassName::from(&vec[..]))
 			} else {
 				create_err!(entry, PoolEntry::Utf8)
@@ -86,7 +111,7 @@ impl FromPoolEntry for ClassName {
 	}
 }
 
-impl FromPoolEntry for FieldName {
+impl FromPoolEntry<'_> for FieldName {
 	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::Utf8(vec) = entry {
 			Ok(FieldName::from(&vec[..]))
@@ -96,7 +121,7 @@ impl FromPoolEntry for FieldName {
 	}
 }
 
-impl FromPoolEntry for FieldDescriptor {
+impl FromPoolEntry<'_> for FieldDescriptor {
 	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::Utf8(vec) = entry {
 			Ok(FieldDescriptor::try_from(&vec[..])?)
@@ -106,7 +131,7 @@ impl FromPoolEntry for FieldDescriptor {
 	}
 }
 
-impl FromPoolEntry for MethodName {
+impl FromPoolEntry<'_> for MethodName {
 	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::Utf8(vec) = entry {
 			Ok(MethodName::from(&vec[..]))
@@ -116,7 +141,7 @@ impl FromPoolEntry for MethodName {
 	}
 }
 
-impl FromPoolEntry for MethodDescriptor {
+impl FromPoolEntry<'_> for MethodDescriptor {
 	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::Utf8(vec) = entry {
 			Ok(MethodDescriptor::try_from(&vec[..])?)
@@ -130,12 +155,12 @@ struct NameAndType<N, D> {
 	name: N,
 	descriptor: D,
 }
-impl<'a, 'b, N, D> FromPoolEntry for NameAndType<N, D>
+impl<'a, N, D> FromPoolEntry<'a> for NameAndType<N, D>
 where
-	N: FromPoolEntry,
-	D: FromPoolEntry,
+	N: FromPoolEntry<'a>,
+	D: FromPoolEntry<'a>,
 {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
+	fn from_pool_entry(pool: &'a Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::NameAndType{ name_index, descriptor_index } = entry {
 			let name       = N::from_pool_entry(pool, pool.get(*name_index      )?)?;
 			let descriptor = D::from_pool_entry(pool, pool.get(*descriptor_index)?)?;
@@ -146,7 +171,7 @@ where
 	}
 }
 
-impl FromPoolEntry for FieldRefInfo {
+impl FromPoolEntry<'_> for FieldRefInfo {
 	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::FieldRef { class_index, name_and_type_index } = entry {
 			let class: ClassName = pool.get(*class_index)?;
@@ -158,7 +183,7 @@ impl FromPoolEntry for FieldRefInfo {
 	}
 }
 
-impl FromPoolEntry for MethodRefInfo {
+impl FromPoolEntry<'_> for MethodRefInfo {
 	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::MethodRef { class_index, name_and_type_index } = entry {
 			let class: ClassName = pool.get(*class_index)?;
@@ -170,7 +195,7 @@ impl FromPoolEntry for MethodRefInfo {
 	}
 }
 
-impl FromPoolEntry for InterfaceMethodRefInfo {
+impl FromPoolEntry<'_> for InterfaceMethodRefInfo {
 	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::InterfaceMethodRef { class_index, name_and_type_index } = entry {
 			let class: ClassName = pool.get(*class_index)?;
@@ -182,7 +207,7 @@ impl FromPoolEntry for InterfaceMethodRefInfo {
 	}
 }
 
-impl FromPoolEntry for MethodHandleInfo {
+impl FromPoolEntry<'_> for MethodHandleInfo {
 	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::MethodHandle(kind, index) = entry {
 			match *kind {
@@ -190,14 +215,12 @@ impl FromPoolEntry for MethodHandleInfo {
 				2 => Ok(MethodHandleInfo::GetStatic       (pool.get(*index)?)),
 				3 => Ok(MethodHandleInfo::PutField        (pool.get(*index)?)),
 				4 => Ok(MethodHandleInfo::PutStatic       (pool.get(*index)?)),
-				// TODO: 5-8: if kind == 8: must be <init>, else: must not be <init>/<clinit>
-				5 => Ok(MethodHandleInfo::InvokeVirtual   (pool.get(*index)?)),
-				6 => Ok(MethodHandleInfo::InvokeStatic    (pool.get(*index)?)),
-				7 => Ok(MethodHandleInfo::InvokeSpecial   (pool.get(*index)?)),
-				8 => Ok(MethodHandleInfo::NewInvokeSpecial(pool.get(*index)?)),
-				// TODO: 9: must not be <init>/<clinit>
-				9 => Ok(MethodHandleInfo::InvokeInterface (pool.get(*index)?)),
-				kind => bail!("unknown method handle info kind"), // TODO: log value?
+				5 => Ok(MethodHandleInfo::InvokeVirtual   (pool.get(*index)?)), // TODO: must not be <init> and not <clinit>
+				6 => Ok(MethodHandleInfo::InvokeStatic    (pool.get(*index)?)), // TODO: must not be <init> and not <clinit>
+				7 => Ok(MethodHandleInfo::InvokeSpecial   (pool.get(*index)?)), // TODO: must not be <init> and not <clinit>
+				8 => Ok(MethodHandleInfo::NewInvokeSpecial(pool.get(*index)?)), // TODO: must be <init>
+				9 => Ok(MethodHandleInfo::InvokeInterface (pool.get(*index)?)), // TODO: must not be <init> and not <clinit>
+				kind => bail!("unknown method handle info kind: {kind}"),
 			}
 		} else {
 			create_err!(entry, PoolEntry::MethodHandle)
@@ -205,7 +228,7 @@ impl FromPoolEntry for MethodHandleInfo {
 	}
 }
 
-impl FromPoolEntry for InvokeDynamicInfo {
+impl FromPoolEntry<'_> for InvokeDynamicInfo {
 	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::InvokeDynamic { bootstrap_method_attribute_index, name_and_type_index } = entry {
 			let name_and_type: NameAndType<_, _> = pool.get(*name_and_type_index)?;
@@ -307,7 +330,7 @@ impl PoolEntry {
 				bootstrap_method_attribute_index: reader.read_u2()?,
 				name_and_type_index: reader.read_u2_as_usize()?,
 			}),
-			tag => bail!("unknown constant pool tag"), // TODO: log value
+			tag => bail!("unknown constant pool tag {tag}"),
 		}
 	}
 }

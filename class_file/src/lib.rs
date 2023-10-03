@@ -18,7 +18,7 @@ use crate::cp::Pool;
 use crate::descriptor::{FieldDescriptor, MethodDescriptor};
 use crate::name::{ClassName, FieldName, MethodName};
 
-trait MyRead: Read {
+pub trait MyRead: Read {
 	fn read_n<const N: usize>(&mut self) -> Result<[u8; N]> {
 		let mut buf = [0u8; N];
 		let length = self.read(&mut buf)?;
@@ -28,6 +28,7 @@ trait MyRead: Read {
 			bail!("unexpected data end")
 		}
 	}
+	// TODO: rename to u8, u16, u32
 	fn read_u1(&mut self) -> Result<u8> {
 		self.read_n().map(|x| u8::from_be_bytes(x))
 	}
@@ -45,6 +46,15 @@ trait MyRead: Read {
 	}
 	fn read_u4_as_usize(&mut self) -> Result<usize> {
 		Ok(self.read_u4()? as usize)
+	}
+	fn read_i8(&mut self) -> Result<i8> {
+		todo!()
+	}
+	fn read_i16(&mut self) -> Result<i16> {
+		todo!()
+	}
+	fn read_i32(&mut self) -> Result<i32> {
+		todo!()
 	}
 	/// First calls the `size` parameter to get the length of the data, then calls `element` so often to read the data, returning the data then. The
 	/// argument `self` is given to both closures.
@@ -183,7 +193,7 @@ impl ClassFile {
 
 		let interfaces: Vec<ClassName> = reader.read_vec(
 			|r| r.read_u2_as_usize(),
-			|r| pool.get(reader.read_u2_as_usize()?)
+			|r| pool.get(r.read_u2_as_usize()?)
 		)?;
 		let fields = reader.read_vec(
 			|r| r.read_u2_as_usize(),

@@ -160,7 +160,7 @@ impl MethodInfoAccess {
 
 		/// Methods of interfaces may have any of the flags in Table 4.6-A set except ACC_PROTECTED, ACC_FINAL, ACC_SYNCHRONIZED,
 		/// and ACC_NATIVE (JLS §9.4).
-		///
+
 		/// < 52.0   its ACC_PUBLIC and ACC_ABSTRACT flags set;
 		/// >= 52.0  exactly one of its ACC_PUBLIC and ACC_PRIVATE flags set.
 		let is_interface_method = false; // "methods of interfaces"
@@ -183,9 +183,12 @@ impl MethodInfoAccess {
 		/// and may also have its ACC_VARARGS, ACC_STRICT, and ACC_SYNTHETIC flags set, but must not have any of the other flags in Table 4.6-A set.
 		let is_specific_instance_initialisation_method = false;
 		if is_specific_instance_initialisation_method {
-			// at most one of: public, private, protected
 			// may have: is_varargs, is_strict, is_synthetic
-			// -> must not have: is_static, is_final, is_synchronised, is_bridge, is_native, is_abstract
+			// -> must not have: is_static, is_final, is_synchronised, is_native, is_bridge, is_abstract
+			if is_static || is_final || is_synchronised || is_native || is_bridge || is_abstract {
+				bail!("instance initialization methods may have at most one of ACC_PUBLIC, ACC_PRIVATE and ACC_PROTECTED, and may also have\
+				ACC_VARARGS, ACC_STRICT, ACC_SYNTHETIC, mut must not have any of the other flags set")
+			}
 		}
 
 		/// Class and interface initialization methods are called implicitly by the Java Virtual Machine. The value of their access_flags

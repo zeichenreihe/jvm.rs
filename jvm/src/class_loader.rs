@@ -1,11 +1,13 @@
+use anyhow::Result;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use std::rc::Rc;
 use crate::class_instance::{Class, Field};
-use crate::classfile::{ClassFile, FieldInfo};
-use crate::classfile::name::ClassName;
-use crate::errors::{ClassFileParseError, ClassLoadError};
+use class_file::{ClassFile, FieldInfo};
+use class_file::descriptor::BaseOrObjectType;
+use class_file::name::ClassName;
+use crate::errors::ClassLoadError;
 
 // class loading action list:
 // - loading: load ClassFile from disk/...
@@ -36,7 +38,7 @@ pub enum ClassesSource {
 
 impl ClassesSource {
 	/// Attempts to locate and load a class. Returns `Ok(None)` if no class with the name can be found.
-	fn load(&self, name: &ClassName) -> Result<Option<ClassFile>, ClassFileParseError> {
+	fn load(&self, name: &ClassName) -> Result<Option<ClassFile>> {
 		if name == match self {
 			ClassesSource::Class { name, .. } => name,
 			ClassesSource::Bytes { name, .. } => name,
@@ -96,13 +98,17 @@ impl ClassLoader {
 			0
 		};
 
+		fn get_size(_: &BaseOrObjectType) -> usize {
+			todo!()
+		}
+
 		let (static_fields, non_static_fields): (Vec<&FieldInfo>, Vec<&FieldInfo>) = class_file.fields.iter()
 			.partition(|field| field.access_flags.is_static);
 
 		let mut non_static_field_offset = 0;
 		let non_static_fields: HashMap<_, _> = non_static_fields.iter()
 			.map(|&field| {
-				let size = field.descriptor.base_type.get_size() * 4;
+				let size = get_size(&field.descriptor.base_type) * 4;
 				let f = Field {
 					size,
 					field_offset: non_static_field_offset,
@@ -123,7 +129,7 @@ impl ClassLoader {
 
 		let static_fields: HashMap<_, _> = static_fields.iter()
 			.map(|&field| {
-				let size = field.descriptor.base_type.get_size() * 4;
+				let size = get_size(&field.descriptor.base_type) * 4;
 				let f = Field {
 					size,
 					field_offset: static_field_offset,

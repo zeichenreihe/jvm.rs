@@ -33,24 +33,48 @@ struct Class;
 
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Loader;
+pub struct Loader;
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Method;
 
-const JAVA_LANG_OBJECT: &str = "java/lang/Object";
-const JAVA_LANG_THROWABLE: &str = "java/lang/Throwable";
-const JAVA_LANG_CLONEABLE: &str = "java/lang/Cloneable";
-const JAVA_LANG_SERIALIZABLE: &str = "java/lang/Serializable";
+const JAVA_LANG_OBJECT                : &[u8] = b"java/lang/Object";
+const JAVA_LANG_THROWABLE             : &[u8] = b"java/lang/Throwable";
+const JAVA_LANG_CLONEABLE             : &[u8] = b"java/lang/Cloneable";
+const JAVA_LANG_SERIALIZABLE          : &[u8] = b"java/lang/Serializable";
+const JAVA_LANG_STRING                : &[u8] = b"java/lang/String";
+const JAVA_LANG_CLASS                 : &[u8] = b"java/lang/Class";
+const JAVA_LANG_INVOKE_METHOD_TYPE    : &[u8] = b"java/lang/invoke/MethodType";
+const JAVA_LANG_INVOKE_METHOD_HANDLE  : &[u8] = b"java/lang/invoke/MethodHandle";
 
 fn get_java_lang_object_class() -> Result<VerificationType> {
 	let bl = get_bootstrap_loader()?;
 	bl.is_bootstrap_loader()?;
-	Ok(VerificationType::Class(ClassName::new(JAVA_LANG_OBJECT), bl))
+	Ok(VerificationType::Class(ClassName::from(JAVA_LANG_OBJECT), bl))
 }
 fn get_java_lang_throwable_class() -> Result<VerificationType> {
 	let bl = get_bootstrap_loader()?;
 	bl.is_bootstrap_loader()?;
-	Ok(VerificationType::Class(ClassName::new(JAVA_LANG_THROWABLE), bl))
+	Ok(VerificationType::Class(ClassName::from(JAVA_LANG_THROWABLE), bl))
+}
+fn get_java_lang_string_class() -> Result<VerificationType> {
+	let bl = get_bootstrap_loader()?;
+	bl.is_bootstrap_loader()?;
+	Ok(VerificationType::Class(ClassName::from(JAVA_LANG_STRING), bl))
+}
+fn get_java_lang_class_class() -> Result<VerificationType> {
+	let bl = get_bootstrap_loader()?;
+	bl.is_bootstrap_loader()?;
+	Ok(VerificationType::Class(ClassName::from(JAVA_LANG_CLASS), bl))
+}
+fn get_java_lang_invoke_method_type_class() -> Result<VerificationType> {
+	let bl = get_bootstrap_loader()?;
+	bl.is_bootstrap_loader()?;
+	Ok(VerificationType::Class(ClassName::from(JAVA_LANG_INVOKE_METHOD_TYPE), bl))
+}
+fn get_java_lang_invoke_method_handle_class() -> Result<VerificationType> {
+	let bl = get_bootstrap_loader()?;
+	bl.is_bootstrap_loader()?;
+	Ok(VerificationType::Class(ClassName::from(JAVA_LANG_INVOKE_METHOD_HANDLE), bl))
 }
 
 fn get_bootstrap_loader() -> Result<Loader> {
@@ -732,20 +756,16 @@ impl OperandStack {
 	fn push(&mut self, value: VerificationType) {
 		self.inner.push(value)
 	}
-	fn pop(&mut self) -> Option<VerificationType> {
-		self.inner.pop()
+	fn pop(&mut self) -> Result<VerificationType> {
+		self.inner.pop().ok_or(fail::<()>("").unwrap_err())
 	}
 	fn head(&self) -> Result<&VerificationType> {
-		match self.inner.last() {
-			Some(t) => Ok(t),
-			None => fail(""),
-		}
+		self.inner.last()
+			.ok_or(fail::<()>("").unwrap_err())
 	}
 	fn nth1(&self, index: usize) -> Result<&VerificationType> {
-		match self.inner.get(self.inner.len() - (index - 1)) { // TODO: improve!
-			Some(x) => Ok(x),
-			None => fail(""),
-		}
+		self.inner.get(self.inner.len() - (index - 1))
+			.ok_or(fail::<()>("").unwrap_err())
 	}
 }
 
@@ -866,10 +886,10 @@ fn pop_matching_list(operand_stack: OperandStack, types: impl IntoIterator<Item=
 //     sizeOf(Type, 2),
 //     isAssignable(ActualType, Type).
 fn pop_matching_type(mut operand_stack: OperandStack, type_: VerificationType) -> Result<(OperandStack, VerificationType)> {
-	match operand_stack.pop() {
-		Some(VerificationType::Top) => {
-			match operand_stack.pop() {
-				Some(actual_type) if actual_type.size() == TypeSize::OneWord => {
+	match operand_stack.pop()? {
+		VerificationType::Top => {
+			match operand_stack.pop()? {
+				actual_type if actual_type.size() == TypeSize::OneWord => {
 					VerificationType::is_assignable(&actual_type, &type_)?;
 
 					Ok((operand_stack, actual_type))
@@ -877,12 +897,12 @@ fn pop_matching_type(mut operand_stack: OperandStack, type_: VerificationType) -
 				_ => fail(""),
 			}
 		},
-		Some(actual_type) if actual_type.size() == TypeSize::OneWord => {
+		actual_type if actual_type.size() == TypeSize::OneWord => {
 			VerificationType::is_assignable(&actual_type, &type_)?;
 
 			Ok((operand_stack, actual_type))
 		},
-		_ => fail("")
+		_ => fail(""),
 	}
 }
 
@@ -949,7 +969,7 @@ fn can_safely_push(environment: &Environment, input_operand_stack: OperandStack,
 //                   OutputOperandStack) :-
 //     canPushList(InputOperandStack, Types, OutputOperandStack),
 //     operandStackHasLegalLength(Environment, OutputOperandStack).
-fn can_safely_push_list<const N: usize>(environment: &Environment, input_operand_stack: OperandStack, types: [VerificationType; N]) -> Result<OperandStack> {
+fn can_safely_push_list(environment: &Environment, input_operand_stack: OperandStack, types: impl IntoIterator<Item=VerificationType>) -> Result<OperandStack> {
 	let output_operand_stack = can_push_list(input_operand_stack, types)?;
 	output_operand_stack.has_legal_length(environment)?;
 	Ok(output_operand_stack)
@@ -959,7 +979,7 @@ fn can_safely_push_list<const N: usize>(environment: &Environment, input_operand
 // canPushList(InputOperandStack, [Type | Rest], OutputOperandStack) :-
 //     pushOperandStack(InputOperandStack, Type, InterimOperandStack),
 //     canPushList(InterimOperandStack, Rest, OutputOperandStack).
-fn can_push_list<const N: usize>(mut operand_stack: OperandStack, types: [VerificationType; N]) -> Result<OperandStack> {
+fn can_push_list(mut operand_stack: OperandStack, types: impl IntoIterator<Item=VerificationType>) -> Result<OperandStack> {
 	for type_ in types {
 		operand_stack = push_operand_stack(operand_stack, Some(type_))?;
 	}
@@ -970,12 +990,9 @@ fn can_push_list<const N: usize>(mut operand_stack: OperandStack, types: [Verifi
 //     Type \= top,
 //     sizeOf(Type, 1).
 fn pop_category_1(mut stack: OperandStack) -> Result<(VerificationType, OperandStack)> {
-	if let Some(type_) = stack.pop() {
-		if type_ != VerificationType::Top && type_.size() == TypeSize::OneWord {
-			Ok((type_, stack))
-		} else {
-			fail("")
-		}
+	let type_ = stack.pop()?;
+	if type_ != VerificationType::Top && type_.size() == TypeSize::OneWord {
+		Ok((type_, stack))
 	} else {
 		fail("")
 	}
@@ -984,13 +1001,10 @@ fn pop_category_1(mut stack: OperandStack) -> Result<(VerificationType, OperandS
 // popCategory2([top, Type | Rest], Type, Rest) :-
 //     sizeOf(Type, 2).
 fn pop_category_2(mut stack: OperandStack) -> Result<(VerificationType, OperandStack)> {
-	if let Some(VerificationType::Top) = stack.pop() {
-		if let Some(type_) = stack.pop() {
-			if type_.size() == TypeSize::TwoWord {
-				Ok((type_, stack))
-			} else {
-				fail("")
-			}
+	if stack.pop()? == VerificationType::Top {
+		let type_ = stack.pop()?;
+		if type_.size() == TypeSize::TwoWord {
+			Ok((type_, stack))
 		} else {
 			fail("")
 		}
@@ -2469,7 +2483,6 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		//     NextStackFrame = frame(Locals, OutputOperandStack, Flags),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		DupX2 => {
-
 			fn dup_x2_form_is_type_safe(environment: &Environment, input_operand_stack: &OperandStack) -> Result<OperandStack> {
 				// dup_x2FormIsTypeSafe(Environment, InputOperandStack, OutputOperandStack) :-
 				//     dup_x2Form1IsTypeSafe(Environment, InputOperandStack, OutputOperandStack).
@@ -2514,9 +2527,8 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 
 			let output_operand_stack = dup_x2_form_is_type_safe(environment, &stack_frame.operand_stack)?;
 			let next_stack_frame = Frame {
-				locals: stack_frame.locals.clone(),
 				operand_stack: output_operand_stack,
-				flag_this_uninit: stack_frame.flag_this_uninit
+				..stack_frame
 			};
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
@@ -2937,11 +2949,7 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		// instructionHasEquivalentTypeRule(goto_w(Target), goto(Target)).
 		Goto(target) => {
-			target_is_type_safe(
-				environment,
-				&stack_frame,
-				target.0.0
-			)?;
+			target_is_type_safe(environment, &stack_frame, target.0)?;
 			Ok((FrameT::AfterGoto, exception_stack_frame))
 		},
 
@@ -3063,7 +3071,7 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		// instructionHasEquivalentTypeRule(if_acmpne(Target), if_acmpeq(Target)).
 		IfACmpEq(target) | IfACmpNe(target) => {
 			let next_stack_frame = stack_frame.can_pop([Reference, Reference])?;
-			target_is_type_safe(environment, &next_stack_frame, target.0.0)?;
+			target_is_type_safe(environment, &next_stack_frame, target.0)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3080,7 +3088,7 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		IfICmpEq(target) | IfICmpGe(target) | IfICmpGt(target) |
 		IfICmpLe(target) | IfICmpLt(target) | IfICmpNe(target) => {
 			let next_stack_frame = stack_frame.can_pop([Int, Int])?;
-			target_is_type_safe(environment, &next_stack_frame, target.0.0)?;
+			target_is_type_safe(environment, &next_stack_frame, target.0)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3097,7 +3105,7 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		IfEq(target) | IfGe(target) | IfGt(target) |
 		IfLe(target) | IfLt(target) | IfNe(target) => {
 			let next_stack_frame = stack_frame.can_pop([Int])?;
-			target_is_type_safe(environment, &next_stack_frame, target.0.0)?;
+			target_is_type_safe(environment, &next_stack_frame, target.0)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3109,7 +3117,7 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		// instructionHasEquivalentTypeRule(ifnull(Target), ifnonnull(Target)).
 		IfNonNull(target) | IfNull(target) => {
 			let next_stack_frame = stack_frame.can_pop([Reference])?;
-			target_is_type_safe(environment, &next_stack_frame, target.0.0)?;
+			target_is_type_safe(environment, &next_stack_frame, target.0)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
@@ -3205,16 +3213,21 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		//     countIsValid(Count, StackFrame, TempFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		InvokeInterface{..} => {
+			fn count_is_valid(count: &usize, input_frame: &Frame, output_frame: &Frame) -> Bool {
+				// countIsValid(Count, InputFrame, OutputFrame) :-
+				//     InputFrame = frame(_Locals1, OperandStack1, _Flags1),
+				//     OutputFrame = frame(_Locals2, OperandStack2, _Flags2),
+				//     length(OperandStack1, Length1),
+				//     length(OperandStack2, Length2),
+				//     Count =:= Length1 - Length2.
+				let length1 = input_frame.operand_stack.inner.len();
+				let length2 = output_frame.operand_stack.inner.len();
+				(count + length2 == length1).fail("")
+			}
 			let next_stack_frame = todo!();
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
 
-		// countIsValid(Count, InputFrame, OutputFrame) :-
-		//     InputFrame = frame(_Locals1, OperandStack1, _Flags1),
-		//     OutputFrame = frame(_Locals2, OperandStack2, _Flags2),
-		//     length(OperandStack1, Length1),
-		//     length(OperandStack2, Length2),
-		//     Count =:= Length1 - Length2.
 
 		// instructionIsTypeSafe(invokespecial(CP), Environment, _Offset, StackFrame,
 		//                       NextStackFrame, ExceptionStackFrame) :-
@@ -3326,11 +3339,11 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 			fn reverse<T>(vec: Vec<T>) -> Vec<T> {
 				vec.into_iter().rev().collect()
 			}
-			fn as_head<T>(first: T, mut vec: Vec<T>) -> Vec<T> { // TODO: make this better!
-				vec.insert(0, first);
+			fn as_end<T>(last: T, mut vec: Vec<T>) -> Vec<T> { // TODO: make this better!
+				vec.push(last);
 				vec
 			}
-			let stack_arg_list = reverse(as_head(Class(method.class, current_loader), operand_arg_list));
+			let stack_arg_list = as_end(Class(method.class.clone(), current_loader), reverse(operand_arg_list));
 			let next_stack_frame = stack_frame.clone().valid_type_transition(
 				environment,
 				stack_arg_list,
@@ -3492,12 +3505,51 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		//     validTypeTransition(Environment, [], Type, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		// instructionHasEquivalentTypeRule(ldc_w(CP), ldc(CP))
-		LdcInt{..} | LdcFloat{..} | LdcReferenceString{..} | LdcReferenceClass{..} | LdcReferenceMethodType{..} | LdcReferenceMethodHandle {..} => {
-			let type_ = todo!();
+		LdcInt(_) => {
 			let next_stack_frame = stack_frame.valid_type_transition(
 				environment,
 				[],
-				type_
+				Some(Int)
+			)?;
+			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+		},
+		LdcFloat(_) => {
+			let next_stack_frame = stack_frame.valid_type_transition(
+				environment,
+				[],
+				Some(Float)
+			)?;
+			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+		},
+		LdcReferenceString(_) => {
+			let next_stack_frame = stack_frame.valid_type_transition(
+				environment,
+				[],
+				Some(get_java_lang_string_class()?)
+			)?;
+			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+		},
+		LdcReferenceClass(_) => {
+			let next_stack_frame = stack_frame.valid_type_transition(
+				environment,
+				[],
+				Some(get_java_lang_class_class()?)
+			)?;
+			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+		},
+		LdcReferenceMethodType(_) => {
+			let next_stack_frame = stack_frame.valid_type_transition(
+				environment,
+				[],
+				Some(get_java_lang_invoke_method_type_class()?)
+			)?;
+			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+		},
+		LdcReferenceMethodHandle(_) => {
+			let next_stack_frame = stack_frame.valid_type_transition(
+				environment,
+				[],
+				Some(get_java_lang_invoke_method_handle_class()?)
 			)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
@@ -3508,12 +3560,19 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		//     member(Tag, [long, double]),
 		//     validTypeTransition(Environment, [], Tag, StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
-		Ldc2WDouble{..} | Ldc2WLong{..} => {
-			let type_ = todo!();
+		Ldc2WLong(_) => {
 			let next_stack_frame = stack_frame.valid_type_transition(
 				environment,
 				[],
-				type_
+				Some(Long)
+			)?;
+			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
+		},
+		Ldc2WDouble(_) => {
+			let next_stack_frame = stack_frame.valid_type_transition(
+				environment,
+				[],
+				Some(Double)
 			)?;
 			Ok((FrameT::Frame(next_stack_frame), exception_stack_frame))
 		},
@@ -3616,7 +3675,6 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		//                         StackFrame, NextStackFrame),
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		MultiANewArray(cp, dim) => {
-			let dim = dim as usize;
 			(matches!(cp, ArrayOf(_))).fail("")?;
 			let dimension = cp.class_dimension();
 			(dimension >= dim && dim > 0).fail("")?;
@@ -3699,9 +3757,9 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Pop => {
 			let mut operand_stack = stack_frame.operand_stack;
-			match operand_stack.pop() {
-				Some(Top) => fail(""),
-				Some(type_) if type_.size() == TypeSize::OneWord => {
+			match operand_stack.pop()? {
+				Top => fail(""),
+				type_ if type_.size() == TypeSize::OneWord => {
 					let next_stack_frame = Frame {
 						operand_stack,
 						..stack_frame
@@ -3720,28 +3778,24 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		//     exceptionStackFrame(StackFrame, ExceptionStackFrame).
 		Pop2 => {
 			fn pop2_some_form_is_type_safe(mut stack: OperandStack) -> Result<OperandStack> {
-				let type_1 = stack.pop();
-				let type_2 = stack.pop();
-				if let (Some(type_1), Some(type_2)) = (type_1, type_2) {
-					// pop2SomeFormIsTypeSafe(InputOperandStack, OutputOperandStack) :-
-					//     pop2Form1IsTypeSafe(InputOperandStack, OutputOperandStack).
-					//
-					// pop2SomeFormIsTypeSafe(InputOperandStack, OutputOperandStack) :-
-					//     pop2Form2IsTypeSafe(InputOperandStack, OutputOperandStack).
+				let type_1 = stack.pop()?;
+				let type_2 = stack.pop()?;
+				// pop2SomeFormIsTypeSafe(InputOperandStack, OutputOperandStack) :-
+				//     pop2Form1IsTypeSafe(InputOperandStack, OutputOperandStack).
+				//
+				// pop2SomeFormIsTypeSafe(InputOperandStack, OutputOperandStack) :-
+				//     pop2Form2IsTypeSafe(InputOperandStack, OutputOperandStack).
 
-					// pop2Form1IsTypeSafe([Type1, Type2 | Rest], Rest) :-
-					//     sizeOf(Type1, 1),
-					//     sizeOf(Type2, 1).
-					let pop2_form1_is_type_safe = type_1.size() == TypeSize::OneWord && type_2.size() == TypeSize::OneWord;
+				// pop2Form1IsTypeSafe([Type1, Type2 | Rest], Rest) :-
+				//     sizeOf(Type1, 1),
+				//     sizeOf(Type2, 1).
+				let pop2_form1_is_type_safe = type_1.size() == TypeSize::OneWord && type_2.size() == TypeSize::OneWord;
 
-					// pop2Form2IsTypeSafe([top, Type | Rest], Rest) :- sizeOf(Type, 2).
-					let pop2_form2_is_type_safe = type_1 == Top && type_2.size() == TypeSize::TwoWord;
+				// pop2Form2IsTypeSafe([top, Type | Rest], Rest) :- sizeOf(Type, 2).
+				let pop2_form2_is_type_safe = type_1 == Top && type_2.size() == TypeSize::TwoWord;
 
-					if pop2_form1_is_type_safe || pop2_form2_is_type_safe {
-						Ok(stack)
-					} else {
-						fail("")
-					}
+				if pop2_form1_is_type_safe || pop2_form2_is_type_safe {
+					Ok(stack)
 				} else {
 					fail("")
 				}
@@ -3850,14 +3904,8 @@ fn instruction_is_type_safe(instruction: Opcode, environment: &Environment, offs
 		Swap => {
 			let mut operand_stack = stack_frame.operand_stack;
 
-			let type_1 = match operand_stack.pop() {
-				Some(x) => x,
-				_ => return fail(""),
-			};
-			let type_2 = match operand_stack.pop() {
-				Some(x) => x,
-				_ => return fail(""),
-			};
+			let type_1 = operand_stack.pop()?;
+			let type_2 = operand_stack.pop()?;
 
 			size_of(&type_1, 1)?;
 			size_of(&type_2, 1)?;

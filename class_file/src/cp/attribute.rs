@@ -1,6 +1,4 @@
 use anyhow::Result;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use std::io::Read;
 use anyhow::bail;
 use itertools::{Either, Itertools};
@@ -16,23 +14,6 @@ type FloatInfo = u32;
 type DoubleInfo = u32;
 type IntegerInfo = u32;
 type StringInfo = u32;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AttributeTagMismatchError {
-	pub expected: String,
-	pub actual: String,
-}
-
-impl Display for AttributeTagMismatchError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("AttributeTagMismatchError")
-			.field("expected", &self.expected)
-			.field("actual", &self.actual)
-			.finish()
-	}
-}
-
-impl Error for AttributeTagMismatchError {}
 
 fn check_attribute_length<R: Read>(reader: &mut R, length: u32) -> Result<()> {
 	let len = reader.read_u4()?;
@@ -57,7 +38,7 @@ impl ConstantValueAttribute {
 
 		let index = reader.read_u2_as_usize()?;
 
-		match pool.get::<&_>(index)? {
+		match pool.get::<&PoolEntry>(index)? {
 			PoolEntry::Long { high, low } => Ok(ConstantValueAttribute::Long(high.clone())),
 			PoolEntry::Float(float) => Ok(ConstantValueAttribute::Float(float.clone())),
 			PoolEntry::Double { high, low } => Ok(ConstantValueAttribute::Double(high.clone())),
@@ -906,7 +887,7 @@ impl BootstrapMethodArgument {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<BootstrapMethodArgument> {
 		let index = reader.read_u2_as_usize()?;
 
-		match pool.get::<&_>(index)? {
+		match pool.get::<&PoolEntry>(index)? {
 			PoolEntry::String(_)          => Ok(Self::String(0)), // TODO: impl
 			PoolEntry::ClassName(_)       => Ok(Self::Class       (pool.get(index)?)),
 			PoolEntry::MethodHandle(_, _) => Ok(Self::MethodHandle(pool.get(index)?)),
@@ -975,14 +956,11 @@ impl MethodParameterAccessFlags {
 macro_rules! try_from_enum_impl {
 	($enum_type:ty, $pattern:path, $inner_type:ty) => {
 		impl TryFrom<$enum_type> for $inner_type {
-			type Error = AttributeTagMismatchError;
+			type Error = anyhow::Error;
 			fn try_from(value: $enum_type) -> Result<Self, Self::Error> {
 				match value {
 					$pattern(value) => Ok(value),
-					v => Err(AttributeTagMismatchError {
-						expected: stringify!($pattern).to_string(),
-						actual: format!("{:?}", v),
-					}),
+					v => bail!("attribute mismatch: expected {}, got {v:?}", stringify!($pattern)),
 				}
 			}
 		}
@@ -1041,8 +1019,8 @@ pub enum AttributeInfo { // 4.7
 }
 
 impl AttributeInfo {
-	pub fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self> {
-		let name: &Vec<u8> = pool.get(reader.read_u2_as_usize()?)?;
+	pub fn parse<'a, R: Read>(reader: &mut R, pool: &'a Pool) -> Result<Self> {
+		let name: &'a Vec<u8> = pool.get(reader.read_u2_as_usize()?)?;
 		Ok(match name.as_slice() {
 			b"ConstantValue" => Self::ConstantValue(ConstantValueAttribute::parse(reader, pool)?),
 			b"Code" => Self::Code(CodeAttribute::parse(reader, pool)?),

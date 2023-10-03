@@ -1,11 +1,8 @@
+use anyhow::{bail, Result};
 use std::fmt::{Display, Formatter};
-use std::mem;
 use std::rc::Rc;
 use crate::class_instance::Class;
 use crate::class_loader::ClassLoader;
-use crate::code::Code;
-use crate::errors::{OutOfBoundsError, RuntimeError};
-use classfile::instruction::Opcode;
 
 #[derive(Debug, Clone, Copy)]
 pub enum StackFrameLvType {
@@ -13,11 +10,11 @@ pub enum StackFrameLvType {
 	Boolean(JBoolean), Byte(JByte), Short(JShort), Char(JChar), Int(JInt), Long(JLong), Float(JFloat), Double(JDouble), Reference(JReference)
 }
 impl StackFrameLvType {
-	fn try_as_int(&self) -> Result<JInt, RuntimeError> {
+	fn try_as_int(&self) -> Result<JInt> {
 		if let Self::Int(int) = self {
 			Ok(int.clone())
 		} else {
-			Err(RuntimeError::TypeMismatch)
+			bail!("type mismatch")
 		}
 	}
 }
@@ -62,7 +59,6 @@ struct VmStackFrame {
 	stack_pointer: usize,
 
 	program_counter: usize,
-	code: Code,
 	class: Rc<Class>,
 	loader: ClassLoader,
 }
@@ -74,66 +70,9 @@ impl Display for VmStackFrame {
 }
 
 impl VmStackFrame {
-	#[inline]
-	fn push_stack(&mut self, value: StackFrameLvType) -> Result<(), OutOfBoundsError> {
-		*self.operand_stack
-			.get_mut(self.stack_pointer)
-			.ok_or(OutOfBoundsError)? = value;
-		self.stack_pointer += 1;
-		Ok(())
-	}
 
-	#[inline]
-	fn pop_stack(&mut self) -> Result<StackFrameLvType, OutOfBoundsError> {
-		self.stack_pointer -= 1;
-		Ok(mem::replace(
-			self.operand_stack
-				.get_mut(self.stack_pointer)
-				.ok_or(OutOfBoundsError)?,
-			StackFrameLvType::Empty
-		))
-	}
-
-	#[inline]
-	fn store_lv(&mut self, lv_index: usize, value: StackFrameLvType) -> Result<(), OutOfBoundsError> {
-		*self.local_variables
-			.get_mut(lv_index)
-			.ok_or(OutOfBoundsError)? = value;
-		Ok(())
-	}
-
-	#[inline]
-	fn load_lv(&mut self, lv_index: usize) -> Result<StackFrameLvType, OutOfBoundsError> {
-		self.local_variables
-			.get(lv_index)
-			.cloned()
-			.ok_or(OutOfBoundsError)
-	}
-
-	fn next_isn(&mut self) -> Result<&Opcode, OutOfBoundsError> {
-		let opcode = self.code.code
-			.get(self.program_counter)
-			.ok_or(OutOfBoundsError)?;
-		self.program_counter += 1;
-		Ok(opcode)
-	}
-
-	fn run_isn(&mut self) -> Result<(), RuntimeError> {
+	fn run_isn(&mut self) -> Result<()> {
 		println!("{self}");
-		loop {
-			let opcode = self.next_isn()?;
-
-			println!("opcode: {opcode:?}");
-
-			// TODO: make this actually work!
-
-
-			println!("{self}");
-
-			if self.program_counter >= self.code.code.len() {
-				break;
-			}
-		}
 
 		Ok(())
 	}
@@ -147,6 +86,7 @@ mod testing {
 	use std::sync::atomic::Ordering::Relaxed;
 	use inkwell::module::Linkage;
 	use zip::ZipArchive;
+	use class_file::name::ClassName;
 	use crate::class_loader::{ClassesSource, ClassLoader};
 	use crate::classfile::ClassInfo;
 	use crate::classfile::name::ClassName;
@@ -238,7 +178,6 @@ mod testing {
 		let mut frame = VmStackFrame {
 			program_counter: 0,
 			stack_pointer: 0,
-			code: code.code.clone(),
 			local_variables: {
 				let mut vec = Vec::with_capacity(code.max_locals as usize);
 				for _ in 0..(code.max_locals as usize) { vec.push(StackFrameLvType::Empty) }
@@ -295,7 +234,6 @@ mod testing {
 		let mut frame = VmStackFrame {
 			program_counter: 0,
 			stack_pointer: 0,
-			code: code.code.clone(),
 			local_variables: {
 				let mut vec = Vec::with_capacity(code.max_locals as usize);
 				for _ in 0..(code.max_locals as usize) { vec.push(StackFrameLvType::Empty) }

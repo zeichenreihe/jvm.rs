@@ -13,15 +13,14 @@ impl ClassName {
 	}
 }
 
-impl PartialEq<str> for ClassName {
-	fn eq(&self, _other: &str) -> bool {
-		todo!()
+impl PartialEq<[u8]> for ClassName {
+	fn eq(&self, other: &[u8]) -> bool {
+		self.inner == other
 	}
 }
-
-impl PartialEq<&str> for ClassName {
-	fn eq(&self, _other: &&str) -> bool {
-		todo!()
+impl PartialEq<&[u8]> for ClassName {
+	fn eq(&self, other: &&[u8]) -> bool {
+		self.inner == *other
 	}
 }
 

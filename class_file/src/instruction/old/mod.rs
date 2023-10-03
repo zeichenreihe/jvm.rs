@@ -1,6 +1,7 @@
 use crate::instruction::LvIndex;
 use crate::instruction::opcode::Opcode;
 
+#[allow(unused)]
 enum LegacyOpcode {
 	Modern(Opcode),
 
