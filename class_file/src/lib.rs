@@ -28,24 +28,23 @@ pub trait MyRead: Read {
 			bail!("unexpected data end")
 		}
 	}
-	// TODO: rename to u8, u16, u32
-	fn read_u1(&mut self) -> Result<u8> {
-		self.read_n().map(|x| u8::from_be_bytes(x))
+	fn read_u8(&mut self) -> Result<u8> {
+		Ok(u8::from_be_bytes(self.read_n()?))
 	}
-	fn read_u2(&mut self) -> Result<u16> {
+	fn read_u16(&mut self) -> Result<u16> {
 		Ok(u16::from_be_bytes(self.read_n()?))
 	}
-	fn read_u4(&mut self) -> Result<u32> {
+	fn read_u32(&mut self) -> Result<u32> {
 		Ok(u32::from_be_bytes(self.read_n()?))
 	}
-	fn read_u1_as_usize(&mut self) -> Result<usize> {
-		Ok(self.read_u1()? as usize)
+	fn read_u8_as_usize(&mut self) -> Result<usize> {
+		Ok(self.read_u8()? as usize)
 	}
-	fn read_u2_as_usize(&mut self) -> Result<usize> {
-		Ok(self.read_u2()? as usize)
+	fn read_u16_as_usize(&mut self) -> Result<usize> {
+		Ok(self.read_u16()? as usize)
 	}
-	fn read_u4_as_usize(&mut self) -> Result<usize> {
-		Ok(self.read_u4()? as usize)
+	fn read_u32_as_usize(&mut self) -> Result<usize> {
+		Ok(self.read_u32()? as usize)
 	}
 	fn read_i8(&mut self) -> Result<i8> {
 		todo!()
@@ -56,18 +55,15 @@ pub trait MyRead: Read {
 	fn read_i32(&mut self) -> Result<i32> {
 		todo!()
 	}
-	/// First calls the `size` parameter to get the length of the data, then calls `element` so often to read the data, returning the data then. The
-	/// argument `self` is given to both closures.
-	#[inline]
-	fn read_vec<T, S, E>(&mut self, size: S, element: E) -> Result<Vec<T>>
+	fn read_vec<T, S, E>(&mut self, get_size: S, get_element: E) -> Result<Vec<T>>
 	where
 		S: FnOnce(&mut Self) -> Result<usize>,
 		E: Fn(&mut Self) -> Result<T>
 	{
-		let count = size(self)?;
-		let mut vec = Vec::with_capacity(count);
-		for _ in 0..count {
-			vec.push(element(self)?);
+		let size = get_size(self)?;
+		let mut vec = Vec::with_capacity(size);
+		for _ in 0..size {
+			vec.push(get_element(self)?);
 		}
 		Ok(vec)
 	}
@@ -85,11 +81,11 @@ pub struct FieldInfo { // 4.5
 
 impl FieldInfo {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self> {
-		let access_flags = FieldInfoAccess::parse(reader.read_u2()?)?;
-		let name = pool.get(reader.read_u2_as_usize()?)?;
-		let descriptor = pool.get(reader.read_u2_as_usize()?)?;
+		let access_flags = FieldInfoAccess::parse(reader.read_u16()?)?;
+		let name = pool.get(reader.read_u16_as_usize()?)?;
+		let descriptor = pool.get(reader.read_u16_as_usize()?)?;
 		let attributes = reader.read_vec(
-			|r| r.read_u2_as_usize(),
+			|r| r.read_u16_as_usize(),
 			|r| AttributeInfo::parse(r, pool)
 		)?;
 
@@ -117,11 +113,11 @@ pub struct MethodInfo { // 4.6
 
 impl MethodInfo {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self> {
-		let access_flags = MethodInfoAccess::parse(reader.read_u2()?)?;
-		let name = pool.get(reader.read_u2_as_usize()?)?;
-		let descriptor = pool.get(reader.read_u2_as_usize()?)?;
+		let access_flags = MethodInfoAccess::parse(reader.read_u16()?)?;
+		let name = pool.get(reader.read_u16_as_usize()?)?;
+		let descriptor = pool.get(reader.read_u16_as_usize()?)?;
 		let attributes = reader.read_vec(
-		   |r| r.read_u2_as_usize(),
+		   |r| r.read_u16_as_usize(),
 		   |r| AttributeInfo::parse(r, pool)
 		)?;
 
@@ -172,13 +168,13 @@ pub struct ClassFile {
 
 impl ClassFile {
 	pub fn parse<R: Read>(reader: &mut R) -> Result<Self> {
-		let magic = reader.read_u4()?;
+		let magic = reader.read_u32()?;
 		if magic != 0xCAFE_BABE {
 			bail!("magic didn't match up: {magic:x}")
 		}
 
-		let minor_version = reader.read_u2()?;
-		let major_version = reader.read_u2()?;
+		let minor_version = reader.read_u16()?;
+		let major_version = reader.read_u16()?;
 
 		if major_version <= 51 {
 			bail!("we only accept class files with version >= 52.0, this one has: {major_version}.{minor_version}")
@@ -186,25 +182,25 @@ impl ClassFile {
 
 		let pool = Pool::parse(reader)?;
 
-		let access_flags = ClassInfoAccess::parse(reader.read_u2()?)?;
+		let access_flags = ClassInfoAccess::parse(reader.read_u16()?)?;
 
-		let this_class: ClassName = pool.get(reader.read_u2_as_usize()?)?;
-		let super_class: Option<ClassName> = pool.get(reader.read_u2_as_usize()?)?;
+		let this_class: ClassName = pool.get(reader.read_u16_as_usize()?)?;
+		let super_class: Option<ClassName> = pool.get(reader.read_u16_as_usize()?)?;
 
 		let interfaces: Vec<ClassName> = reader.read_vec(
-			|r| r.read_u2_as_usize(),
-			|r| pool.get(r.read_u2_as_usize()?)
+			|r| r.read_u16_as_usize(),
+			|r| pool.get(r.read_u16_as_usize()?)
 		)?;
 		let fields = reader.read_vec(
-			|r| r.read_u2_as_usize(),
+			|r| r.read_u16_as_usize(),
 			|r| FieldInfo::parse(r, &pool)
 		)?;
 		let methods = reader.read_vec(
-		    |r| r.read_u2_as_usize(),
+		    |r| r.read_u16_as_usize(),
 		    |r| MethodInfo::parse(r, &pool)
 		)?;
 		let attributes = reader.read_vec(
-			|r| r.read_u2_as_usize(),
+			|r| r.read_u16_as_usize(),
 		   |r| AttributeInfo::parse(r, &pool)
 		)?;
 

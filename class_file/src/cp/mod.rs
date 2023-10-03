@@ -11,7 +11,7 @@ pub mod attribute;
 pub struct Pool(Vec<PoolEntry>);
 impl Pool {
 	pub fn parse<R: MyRead>(reader: &mut R) -> Result<Pool> {
-		let count = reader.read_u2_as_usize()?;
+		let count = reader.read_u16_as_usize()?;
 		let mut vec = Vec::with_capacity(count);
 
 		vec.push(PoolEntry::None); // constant pool indices are based on 0
@@ -291,44 +291,44 @@ pub enum PoolEntry { // TODO: should also not be public
 }
 impl PoolEntry {
 	fn parse<R: MyRead>(reader: &mut R) -> Result<PoolEntry> {
-		match reader.read_u1()? {
+		match reader.read_u8()? {
 			1 => Ok(Self::Utf8(reader.read_vec(
-				|r| r.read_u2_as_usize(),
-				|r| r.read_u1()
+				|r| r.read_u16_as_usize(),
+				|r| r.read_u8()
 			)?)),
-			3 => Ok(Self::Integer(reader.read_u4()?)),
-			4 => Ok(Self::Float(reader.read_u4()?)),
+			3 => Ok(Self::Integer(reader.read_u32()?)),
+			4 => Ok(Self::Float(reader.read_u32()?)),
 			5 => Ok(Self::Long {
-				high: reader.read_u4()?,
-				low: reader.read_u4()?,
+				high: reader.read_u32()?,
+				low: reader.read_u32()?,
 			}),
 			6 => Ok(Self::Double {
-				high: reader.read_u4()?,
-				low: reader.read_u4()?,
+				high: reader.read_u32()?,
+				low: reader.read_u32()?,
 			}),
-			7 => Ok(Self::ClassName(reader.read_u2_as_usize()?)),
-			8 => Ok(Self::String(reader.read_u2_as_usize()?)),
+			7 => Ok(Self::ClassName(reader.read_u16_as_usize()?)),
+			8 => Ok(Self::String(reader.read_u16_as_usize()?)),
 			9 => Ok(Self::FieldRef {
-				class_index: reader.read_u2_as_usize()?,
-				name_and_type_index: reader.read_u2_as_usize()?,
+				class_index: reader.read_u16_as_usize()?,
+				name_and_type_index: reader.read_u16_as_usize()?,
 			}),
 			10 => Ok(Self::MethodRef {
-				class_index: reader.read_u2_as_usize()?,
-				name_and_type_index: reader.read_u2_as_usize()?,
+				class_index: reader.read_u16_as_usize()?,
+				name_and_type_index: reader.read_u16_as_usize()?,
 			}),
 			11 => Ok(Self::InterfaceMethodRef {
-				class_index: reader.read_u2_as_usize()?,
-				name_and_type_index: reader.read_u2_as_usize()?,
+				class_index: reader.read_u16_as_usize()?,
+				name_and_type_index: reader.read_u16_as_usize()?,
 			}),
 			12 => Ok(Self::NameAndType {
-				name_index: reader.read_u2_as_usize()?,
-				descriptor_index: reader.read_u2_as_usize()?,
+				name_index: reader.read_u16_as_usize()?,
+				descriptor_index: reader.read_u16_as_usize()?,
 			}),
-			15 => Ok(Self::MethodHandle(reader.read_u1()?, reader.read_u2_as_usize()?)),
-			16 => Ok(Self::MethodType(reader.read_u2_as_usize()?)),
+			15 => Ok(Self::MethodHandle(reader.read_u8()?, reader.read_u16_as_usize()?)),
+			16 => Ok(Self::MethodType(reader.read_u16_as_usize()?)),
 			18 => Ok(Self::InvokeDynamic {
-				bootstrap_method_attribute_index: reader.read_u2()?,
-				name_and_type_index: reader.read_u2_as_usize()?,
+				bootstrap_method_attribute_index: reader.read_u16()?,
+				name_and_type_index: reader.read_u16_as_usize()?,
 			}),
 			tag => bail!("unknown constant pool tag {tag}"),
 		}

@@ -16,7 +16,7 @@ type IntegerInfo = u32;
 type StringInfo = u32;
 
 fn check_attribute_length<R: Read>(reader: &mut R, length: u32) -> Result<()> {
-	let len = reader.read_u4()?;
+	let len = reader.read_u32()?;
 	if len == length {
 		Ok(())
 	} else {
@@ -36,7 +36,7 @@ impl ConstantValueAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<ConstantValueAttribute> {
 		check_attribute_length(reader, 2)?;
 
-		let index = reader.read_u2_as_usize()?;
+		let index = reader.read_u16_as_usize()?;
 
 		match pool.get::<&PoolEntry>(index)? {
 			PoolEntry::Long { high, low } => Ok(ConstantValueAttribute::Long(high.clone())),
@@ -63,24 +63,24 @@ pub struct CodeAttribute { // 4.7.3
 
 impl CodeAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<CodeAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 
-		let max_stack = reader.read_u2()?;
-		let max_locals = reader.read_u2()?;
+		let max_stack = reader.read_u16()?;
+		let max_locals = reader.read_u16()?;
 
 		let code_bytes = reader.read_vec(
-			|r| r.read_u4_as_usize(),
-			|r| r.read_u1()
+			|r| r.read_u32_as_usize(),
+			|r| r.read_u8()
 		)?;
 		let code = Instructions::parse(&code_bytes[..], pool)?;
 
 		let exception_table = reader.read_vec(
-			|r| r.read_u2_as_usize(),
+			|r| r.read_u16_as_usize(),
 			|r| ExceptionTableEntry::parse(r, pool)
 		)?;
 
 		let attributes = reader.read_vec(
-		   |r| r.read_u2_as_usize(),
+		   |r| r.read_u16_as_usize(),
 		   |r| AttributeInfo::parse(r, pool)
 		)?;
 
@@ -132,10 +132,10 @@ pub struct ExceptionTableEntry { // 4.7.3, exception_table
 impl ExceptionTableEntry {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<ExceptionTableEntry> {
 		Ok(ExceptionTableEntry {
-			start_pc: reader.read_u2_as_usize()?,
-			end_pc: reader.read_u2_as_usize()?,
-			handler_pc: reader.read_u2_as_usize()?,
-			catch_type: pool.get(reader.read_u2_as_usize()?)?,
+			start_pc: reader.read_u16_as_usize()?,
+			end_pc: reader.read_u16_as_usize()?,
+			handler_pc: reader.read_u16_as_usize()?,
+			catch_type: pool.get(reader.read_u16_as_usize()?)?,
 		})
 	}
 }
@@ -162,11 +162,11 @@ pub struct StackMapTableAttribute { // 4.7.4
 }
 impl StackMapTableAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<StackMapTableAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 
 		let mut is_first_explicit_frame = true;
 		let mut last_bytecode_position = 0;
-		let count = reader.read_u2_as_usize()?;
+		let count = reader.read_u16_as_usize()?;
 		let mut entries = Vec::with_capacity(count);
 		for _ in 0..count {
 			let (frame, new_bytecode_position) = StackMapFrame::parse(reader, pool, last_bytecode_position, is_first_explicit_frame)?;
@@ -229,7 +229,7 @@ pub enum VerificationTypeInfo {
 
 impl VerificationTypeInfo {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<VerificationTypeInfo> {
-		match reader.read_u1()? {
+		match reader.read_u8()? {
 			0 => Ok(Self::Top),
 			1 => Ok(Self::Integer),
 			2 => Ok(Self::Float),
@@ -237,9 +237,9 @@ impl VerificationTypeInfo {
 			4 => Ok(Self::Long),
 			5 => Ok(Self::Null),
 			6 => Ok(Self::UninitializedThis),
-			7 => Ok(Self::Object(pool.get(reader.read_u2_as_usize()?)?)),
+			7 => Ok(Self::Object(pool.get(reader.read_u16_as_usize()?)?)),
 			8 => Ok(Self::Uninitialized {
-				bytecode_offset: reader.read_u2_as_usize()?,
+				bytecode_offset: reader.read_u16_as_usize()?,
 			}),
 			tag => bail!("unknown verification type info tag {tag}"),
 		}
@@ -340,7 +340,7 @@ pub enum StackMapFrame {
 impl StackMapFrame {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool, last_bytecode_position: usize, is_first_explicit_frame: bool) ->
 			Result<(StackMapFrame, usize)> {
-		let frame_type = reader.read_u1()?;
+		let frame_type = reader.read_u8()?;
 		
 		let delta_to_position = |offset_delta| if is_first_explicit_frame {
 			last_bytecode_position + offset_delta
@@ -365,7 +365,7 @@ impl StackMapFrame {
 			},
 			128..=246 => bail!("unknown stack map frame type {frame_type}"),
 			247 => {
-				let bytecode_offset = delta_to_position(reader.read_u2_as_usize()?);
+				let bytecode_offset = delta_to_position(reader.read_u16_as_usize()?);
 				Ok((
 					Self::SameLocals1StackItem {
 						bytecode_offset,
@@ -375,7 +375,7 @@ impl StackMapFrame {
 				))
 			},
 			frame_type @ 248..=250 => {
-				let bytecode_offset = delta_to_position(reader.read_u2_as_usize()?);
+				let bytecode_offset = delta_to_position(reader.read_u16_as_usize()?);
 				Ok((
 					Self::Chop {
 						bytecode_offset,
@@ -385,11 +385,11 @@ impl StackMapFrame {
 				))
 			},
 			251 => {
-				let bytecode_offset = delta_to_position(reader.read_u2_as_usize()?);
+				let bytecode_offset = delta_to_position(reader.read_u16_as_usize()?);
 				Ok((Self::Same { bytecode_offset }, bytecode_offset))
 			},
 			frame_type @ 252..=254 => {
-				let bytecode_offset = delta_to_position(reader.read_u2_as_usize()?);
+				let bytecode_offset = delta_to_position(reader.read_u16_as_usize()?);
 				Ok((
 					Self::Append {
 						bytecode_offset,
@@ -402,16 +402,16 @@ impl StackMapFrame {
 				))
 			},
 			255 => {
-				let bytecode_offset = delta_to_position(reader.read_u2_as_usize()?);
+				let bytecode_offset = delta_to_position(reader.read_u16_as_usize()?);
 				Ok((
 					Self::Full {
 						bytecode_offset,
 						locals: reader.read_vec(
-							|r| r.read_u2_as_usize(),
+							|r| r.read_u16_as_usize(),
 								|r| VerificationTypeInfo::parse(r, pool)
 						)?,
 						stack: reader.read_vec(
-							|r| r.read_u2_as_usize(),
+							|r| r.read_u16_as_usize(),
 							|r| VerificationTypeInfo::parse(r, pool)
 						)?,
 					},
@@ -437,12 +437,12 @@ pub struct ExceptionsAttribute { // 4.7.5
 }
 impl ExceptionsAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<ExceptionsAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 
 		Ok(ExceptionsAttribute {
 			exception_table: reader.read_vec(
-				|r| r.read_u2_as_usize(),
-				|r| pool.get(r.read_u2_as_usize()?)
+				|r| r.read_u16_as_usize(),
+				|r| pool.get(r.read_u16_as_usize()?)
 			)?,
 		})
 	}
@@ -454,11 +454,11 @@ pub struct InnerClassesAttribute { // 4.7.6
 }
 impl InnerClassesAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<InnerClassesAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 
 		Ok(InnerClassesAttribute {
 			classes: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| InnerClassesAttributeClassesElement::parse(r, pool)
 			)?,
 		})
@@ -475,10 +475,10 @@ struct InnerClassesAttributeClassesElement { // 4.7.6, classes
 impl InnerClassesAttributeClassesElement {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<InnerClassesAttributeClassesElement> {
 		Ok(InnerClassesAttributeClassesElement {
-			inner_class: pool.get(reader.read_u2_as_usize()?)?,
-			outer_class: pool.get(reader.read_u2_as_usize()?)?,
-			inner_name: pool.get(reader.read_u2_as_usize()?)?,
-			inner_class_access_flags: reader.read_u2()?,
+			inner_class: pool.get(reader.read_u16_as_usize()?)?,
+			outer_class: pool.get(reader.read_u16_as_usize()?)?,
+			inner_name: pool.get(reader.read_u16_as_usize()?)?,
+			inner_class_access_flags: reader.read_u16()?,
 		})
 	}
 }
@@ -492,8 +492,8 @@ pub struct EnclosingMethodAttribute { // 4.7.7
 impl EnclosingMethodAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<EnclosingMethodAttribute> {
 		check_attribute_length(reader, 4)?;
-		let class = pool.get(reader.read_u2_as_usize()?)?;
-		let name_and_type: NameAndType<_, _> = pool.get(reader.read_u2_as_usize()?)?;
+		let class = pool.get(reader.read_u16_as_usize()?)?;
+		let name_and_type: NameAndType<_, _> = pool.get(reader.read_u16_as_usize()?)?;
 		Ok(EnclosingMethodAttribute {
 			class,
 			name: name_and_type.name,
@@ -519,7 +519,7 @@ impl SignatureAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<SignatureAttribute> {
 		check_attribute_length(reader, 2)?;
 		Ok(SignatureAttribute {
-			signature: pool.get(reader.read_u2_as_usize()?)?,
+			signature: pool.get(reader.read_u16_as_usize()?)?,
 		})
 	}
 }
@@ -532,7 +532,7 @@ impl SourceFileAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<SourceFileAttribute> {
 		check_attribute_length(reader, 2)?;
 		Ok(SourceFileAttribute {
-			sourcefile: pool.get(reader.read_u2_as_usize()?)?,
+			sourcefile: pool.get(reader.read_u16_as_usize()?)?,
 		})
 	}
 }
@@ -545,8 +545,8 @@ impl SourceDebugExtensionAttribute {
 	fn parse<R: Read>(reader: &mut R) -> Result<SourceDebugExtensionAttribute> {
 		Ok(SourceDebugExtensionAttribute {
 			debug_extension: reader.read_vec(
-				|r| r.read_u4_as_usize(),
-				|r| r.read_u1()
+				|r| r.read_u32_as_usize(),
+				|r| r.read_u8()
 			)?,
 		})
 	}
@@ -558,10 +558,10 @@ pub struct LineNumberTableAttribute { // 4.7.12
 }
 impl LineNumberTableAttribute {
 	fn parse<R: Read>(reader: &mut R) -> Result<LineNumberTableAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(LineNumberTableAttribute {
 			line_number_table: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| LineNumberTableEntry::parse(r)
 			)?,
 		})
@@ -576,8 +576,8 @@ pub struct LineNumberTableEntry { // 4.7.12, line_number_table
 impl LineNumberTableEntry {
 	fn parse<R: Read>(reader: &mut R) -> Result<LineNumberTableEntry> {
 		Ok(LineNumberTableEntry {
-			start_pc: reader.read_u2_as_usize()?,
-			line_number: reader.read_u2()?,
+			start_pc: reader.read_u16_as_usize()?,
+			line_number: reader.read_u16()?,
 		})
 	}
 }
@@ -588,10 +588,10 @@ pub struct LocalVariableTableAttribute { // 4.7.13
 }
 impl LocalVariableTableAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<LocalVariableTableAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(LocalVariableTableAttribute {
 			local_variable_table: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| LocalVariableTableEntry::parse(r, pool)
 			)?,
 		})
@@ -608,13 +608,13 @@ pub struct LocalVariableTableEntry { // 4.7.13, local_variable_table
 }
 impl LocalVariableTableEntry {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<LocalVariableTableEntry> {
-		let start_pc = reader.read_u2_as_usize()?;
-		let end_pc = start_pc + reader.read_u2_as_usize()?;
+		let start_pc = reader.read_u16_as_usize()?;
+		let end_pc = start_pc + reader.read_u16_as_usize()?;
 		Ok(LocalVariableTableEntry {
 			start_pc, end_pc,
-			name: pool.get(reader.read_u2_as_usize()?)?,
-			descriptor: pool.get(reader.read_u2_as_usize()?)?,
-			lv_index: reader.read_u2()?,
+			name: pool.get(reader.read_u16_as_usize()?)?,
+			descriptor: pool.get(reader.read_u16_as_usize()?)?,
+			lv_index: reader.read_u16()?,
 		})
 	}
 }
@@ -625,10 +625,10 @@ pub struct LocalVariableTypeTableAttribute { // 4.7.14
 }
 impl LocalVariableTypeTableAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<LocalVariableTypeTableAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(LocalVariableTypeTableAttribute {
 			local_variable_type_table: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| LocalVariableTypeTableEntry::parse(r, pool)
 			)?,
 		})
@@ -645,13 +645,13 @@ pub struct LocalVariableTypeTableEntry { // 4.7.14, local_variable_type_table
 }
 impl LocalVariableTypeTableEntry {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<LocalVariableTypeTableEntry> {
-		let start_pc = reader.read_u2_as_usize()?;
-		let end_pc = start_pc + reader.read_u2_as_usize()?;
+		let start_pc = reader.read_u16_as_usize()?;
+		let end_pc = start_pc + reader.read_u16_as_usize()?;
 		Ok(LocalVariableTypeTableEntry {
 			start_pc, end_pc,
-			name: pool.get(reader.read_u2_as_usize()?)?,
-			signature: pool.get(reader.read_u2_as_usize()?)?,
-			lv_index: reader.read_u2()?,
+			name: pool.get(reader.read_u16_as_usize()?)?,
+			signature: pool.get(reader.read_u16_as_usize()?)?,
+			lv_index: reader.read_u16()?,
 		})
 	}
 }
@@ -671,10 +671,10 @@ pub struct RuntimeVisibleAnnotationsAttribute { // 4.7.16
 }
 impl RuntimeVisibleAnnotationsAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<RuntimeVisibleAnnotationsAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(RuntimeVisibleAnnotationsAttribute {
 			annotations: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| Annotation::parse(r, pool),
 			)?,
 		})
@@ -689,9 +689,9 @@ pub struct Annotation { // 4.7.16, annotations
 impl Annotation {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Annotation> {
 		Ok(Annotation {
-			annotation_type: pool.get(reader.read_u2_as_usize()?)?,
+			annotation_type: pool.get(reader.read_u16_as_usize()?)?,
 			element_value_pairs: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| AnnotationElementValuePair::parse(r, pool)
 			)?,
 		})
@@ -706,7 +706,7 @@ struct AnnotationElementValuePair { // 4.7.16, element_value_pairs
 impl AnnotationElementValuePair {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<AnnotationElementValuePair> {
 		Ok(AnnotationElementValuePair {
-			element_name: pool.get(reader.read_u2_as_usize()?)?,
+			element_name: pool.get(reader.read_u16_as_usize()?)?,
 			value: AnnotationElementValue::parse(reader, pool)?,
 		})
 	}
@@ -734,18 +734,18 @@ pub enum AnnotationElementValue { // 4.7.16.1, value
 }
 impl AnnotationElementValue {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self> {
-		let tag = reader.read_u1()?;
+		let tag = reader.read_u8()?;
 
 		Ok(match tag {
 			b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' | b's' => Self::ConstantValueIndex {
-				const_value_index: reader.read_u2()?,
+				const_value_index: reader.read_u16()?,
 			},
 			b'e' => Self::EnumConstValue {
-				type_name_index: reader.read_u2()?,
-				const_name_index: reader.read_u2()?,
+				type_name_index: reader.read_u16()?,
+				const_name_index: reader.read_u16()?,
 			},
 			b'c' => Self::ClassInfoIndex {
-				class_info_index: reader.read_u2()?,
+				class_info_index: reader.read_u16()?,
 			},
 			b'@' => Self::AnnotationValue {
 				annotation_value: Annotation::parse(reader, pool)?,
@@ -753,7 +753,7 @@ impl AnnotationElementValue {
 			b'[' => {
 				Self::ArrayValue {
 					values: reader.read_vec(
-						|r| r.read_u2_as_usize(),
+						|r| r.read_u16_as_usize(),
 						|r| AnnotationElementValue::parse(r, pool)
 					)?,
 				}
@@ -769,10 +769,10 @@ pub struct RuntimeInvisibleAnnotationsAttribute { // 4.7.17
 }
 impl RuntimeInvisibleAnnotationsAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<RuntimeInvisibleAnnotationsAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(RuntimeInvisibleAnnotationsAttribute {
 			annotations: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| Annotation::parse(r, pool)
 			)?,
 		})
@@ -785,10 +785,10 @@ pub struct RuntimeVisibleParameterAnnotationsAttribute { // 4.7.18
 }
 impl RuntimeVisibleParameterAnnotationsAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<RuntimeVisibleParameterAnnotationsAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(RuntimeVisibleParameterAnnotationsAttribute {
 			parameter_annotations: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| ParameterAnnotationPair::parse(r, pool)
 			)?,
 		})
@@ -803,7 +803,7 @@ impl ParameterAnnotationPair {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<ParameterAnnotationPair> {
 		Ok(ParameterAnnotationPair {
 			annotations: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| Annotation::parse(r, pool)
 			)?,
 		})
@@ -816,10 +816,10 @@ pub struct RuntimeInvisibleParameterAnnotationsAttribute { // 4.7.19
 }
 impl RuntimeInvisibleParameterAnnotationsAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<RuntimeInvisibleParameterAnnotationsAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(RuntimeInvisibleParameterAnnotationsAttribute {
 			parameter_annotations: reader.read_vec(
-		        |r| r.read_u1_as_usize(),
+		        |r| r.read_u8_as_usize(),
 		        |r| ParameterAnnotationPair::parse(r, pool)
 			)?,
 		})
@@ -832,7 +832,7 @@ pub struct AnnotationDefaultAttribute { // 4.7.20
 }
 impl AnnotationDefaultAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<AnnotationDefaultAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(AnnotationDefaultAttribute {
 			default_value: AnnotationElementValue::parse(reader, pool)?,
 		})
@@ -845,10 +845,10 @@ pub struct BootstrapMethodsAttribute { // 4.7.21
 }
 impl BootstrapMethodsAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<BootstrapMethodsAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(BootstrapMethodsAttribute {
 			bootstrap_methods: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| BootstrapMethodsAttributeEntry::parse(r, pool)
 			)?,
 		})
@@ -863,9 +863,9 @@ struct BootstrapMethodsAttributeEntry { // 4.7.21, bootstrap_methods
 impl BootstrapMethodsAttributeEntry {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<BootstrapMethodsAttributeEntry> {
 		Ok(BootstrapMethodsAttributeEntry {
-			boostrap_method: pool.get(reader.read_u2_as_usize()?)?,
+			boostrap_method: pool.get(reader.read_u16_as_usize()?)?,
 			bootstrap_arguments: reader.read_vec(
-				|r| r.read_u2_as_usize(),
+				|r| r.read_u16_as_usize(),
 				|r| BootstrapMethodArgument::parse(r, pool)
 			)?
 		})
@@ -885,7 +885,7 @@ enum BootstrapMethodArgument {
 }
 impl BootstrapMethodArgument {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<BootstrapMethodArgument> {
-		let index = reader.read_u2_as_usize()?;
+		let index = reader.read_u16_as_usize()?;
 
 		match pool.get::<&PoolEntry>(index)? {
 			PoolEntry::String(_)          => Ok(Self::String(0)), // TODO: impl
@@ -908,10 +908,10 @@ pub struct MethodParametersAttribute {
 
 impl MethodParametersAttribute {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<MethodParametersAttribute> {
-		let _attribute_length = reader.read_u4()?;
+		let _attribute_length = reader.read_u32()?;
 		Ok(MethodParametersAttribute {
 			parameters: reader.read_vec(
-				|r| r.read_u1_as_usize(),
+				|r| r.read_u8_as_usize(),
 				|r| MethodParameterEntry::parse(r, pool)
 			)?,
 		})
@@ -927,8 +927,8 @@ pub struct MethodParameterEntry {
 impl MethodParameterEntry {
 	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<MethodParameterEntry> {
 		Ok(MethodParameterEntry {
-			name: pool.get(reader.read_u2_as_usize()?)?,
-			access_flags: MethodParameterAccessFlags::parse(reader.read_u2()?)?,
+			name: pool.get(reader.read_u16_as_usize()?)?,
+			access_flags: MethodParameterAccessFlags::parse(reader.read_u16()?)?,
 		})
 	}
 }
@@ -1020,7 +1020,7 @@ pub enum AttributeInfo { // 4.7
 
 impl AttributeInfo {
 	pub fn parse<'a, R: Read>(reader: &mut R, pool: &'a Pool) -> Result<Self> {
-		let name: &'a Vec<u8> = pool.get(reader.read_u2_as_usize()?)?;
+		let name: &'a Vec<u8> = pool.get(reader.read_u16_as_usize()?)?;
 		Ok(match name.as_slice() {
 			b"ConstantValue" => Self::ConstantValue(ConstantValueAttribute::parse(reader, pool)?),
 			b"Code" => Self::Code(CodeAttribute::parse(reader, pool)?),
@@ -1045,8 +1045,8 @@ impl AttributeInfo {
 			b"MethodParameters" => Self::MethodParameters(MethodParametersAttribute::parse(reader, pool)?),
 			_ => {
 				let info = reader.read_vec(
-					|r| r.read_u4_as_usize(),
-					|r| r.read_u1()
+					|r| r.read_u32_as_usize(),
+					|r| r.read_u8()
 				)?;
 				eprintln!("WARN: unknown attr: {name:?}: {info:?}"); // TODO: print?
 				Self::Unknown { name: name.clone(), info }

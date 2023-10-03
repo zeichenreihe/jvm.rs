@@ -793,19 +793,19 @@ pub enum Opcode {
 
 impl Opcode {
 	pub(crate) fn parse(reader: &mut impl CodeReader, pool: &Pool) -> Result<Opcode> {
-		match reader.read_u1()? {
+		match reader.read_u8()? {
 			0x32 => Ok(Opcode::AALoad),
 			0x53 => Ok(Opcode::AAStore),
 			0x01 => Ok(Opcode::AConstNull),
-			0x19 => Ok(Opcode::ALoad(LvIndex(reader.read_u1_as_usize()?))),
+			0x19 => Ok(Opcode::ALoad(LvIndex(reader.read_u8_as_usize()?))),
 			0x2a => Ok(Opcode::ALoad(LvIndex(0))),
 			0x2b => Ok(Opcode::ALoad(LvIndex(1))),
 			0x2c => Ok(Opcode::ALoad(LvIndex(2))),
 			0x2d => Ok(Opcode::ALoad(LvIndex(3))),
-			0xbd => Ok(Opcode::ANewArray(pool.get(reader.read_u2_as_usize()?)?)),
+			0xbd => Ok(Opcode::ANewArray(pool.get(reader.read_u16_as_usize()?)?)),
 			0xb0 => Ok(Opcode::AReturn),
 			0xbe => Ok(Opcode::ArrayLength),
-			0x3a => Ok(Opcode::AStore(LvIndex(reader.read_u1_as_usize()?))),
+			0x3a => Ok(Opcode::AStore(LvIndex(reader.read_u8_as_usize()?))),
 			0x4b => Ok(Opcode::AStore(LvIndex(0))),
 			0x4c => Ok(Opcode::AStore(LvIndex(1))),
 			0x4d => Ok(Opcode::AStore(LvIndex(2))),
@@ -813,11 +813,11 @@ impl Opcode {
 			0xbf => Ok(Opcode::AThrow),
 			0x33 => Ok(Opcode::BALoad),
 			0x54 => Ok(Opcode::BAStore),
-			0x10 => Ok(Opcode::BIPush(reader.read_u1()?)),
+			0x10 => Ok(Opcode::BIPush(reader.read_u8()?)),
 			0xca => Ok(Opcode::Breakpoint),
 			0x34 => Ok(Opcode::CALoad),
 			0x55 => Ok(Opcode::CAStore),
-			0xc0 => Ok(Opcode::CheckCast(pool.get(reader.read_u2_as_usize()?)?)),
+			0xc0 => Ok(Opcode::CheckCast(pool.get(reader.read_u16_as_usize()?)?)),
 			0x90 => Ok(Opcode::D2f),
 			0x8e => Ok(Opcode::D2i),
 			0x8f => Ok(Opcode::D2l),
@@ -829,7 +829,7 @@ impl Opcode {
 			0x0e => Ok(Opcode::DConst0),
 			0x0f => Ok(Opcode::DConst1),
 			0x6f => Ok(Opcode::DDiv),
-			0x18 => Ok(Opcode::DLoad(LvIndex(reader.read_u1_as_usize()?))),
+			0x18 => Ok(Opcode::DLoad(LvIndex(reader.read_u8_as_usize()?))),
 			0x26 => Ok(Opcode::DLoad(LvIndex(0))),
 			0x27 => Ok(Opcode::DLoad(LvIndex(1))),
 			0x28 => Ok(Opcode::DLoad(LvIndex(2))),
@@ -838,7 +838,7 @@ impl Opcode {
 			0x77 => Ok(Opcode::DNeg),
 			0x73 => Ok(Opcode::DRem),
 			0xaf => Ok(Opcode::DReturn),
-			0x39 => Ok(Opcode::DStore(LvIndex(reader.read_u1_as_usize()?))),
+			0x39 => Ok(Opcode::DStore(LvIndex(reader.read_u8_as_usize()?))),
 			0x47 => Ok(Opcode::DStore(LvIndex(0))),
 			0x48 => Ok(Opcode::DStore(LvIndex(1))),
 			0x49 => Ok(Opcode::DStore(LvIndex(2))),
@@ -862,7 +862,7 @@ impl Opcode {
 			0x0c => Ok(Opcode::FConst1),
 			0x0d => Ok(Opcode::FConst2),
 			0x6e => Ok(Opcode::FDiv),
-			0x17 => Ok(Opcode::FLoad(LvIndex(reader.read_u1_as_usize()?))),
+			0x17 => Ok(Opcode::FLoad(LvIndex(reader.read_u8_as_usize()?))),
 			0x22 => Ok(Opcode::FLoad(LvIndex(0))),
 			0x23 => Ok(Opcode::FLoad(LvIndex(1))),
 			0x24 => Ok(Opcode::FLoad(LvIndex(2))),
@@ -871,14 +871,14 @@ impl Opcode {
 			0x76 => Ok(Opcode::FNeg),
 			0x72 => Ok(Opcode::FRem),
 			0xae => Ok(Opcode::FReturn),
-			0x38 => Ok(Opcode::FStore(LvIndex(reader.read_u1_as_usize()?))),
+			0x38 => Ok(Opcode::FStore(LvIndex(reader.read_u8_as_usize()?))),
 			0x43 => Ok(Opcode::FStore(LvIndex(0))),
 			0x44 => Ok(Opcode::FStore(LvIndex(1))),
 			0x45 => Ok(Opcode::FStore(LvIndex(2))),
 			0x46 => Ok(Opcode::FStore(LvIndex(3))),
 			0x66 => Ok(Opcode::FSub),
-			0xb4 => Ok(Opcode::GetField(pool.get(reader.read_u2_as_usize()?)?)),
-			0xb2 => Ok(Opcode::GetStatic(pool.get(reader.read_u2_as_usize()?)?)),
+			0xb4 => Ok(Opcode::GetField(pool.get(reader.read_u16_as_usize()?)?)),
+			0xb2 => Ok(Opcode::GetStatic(pool.get(reader.read_u16_as_usize()?)?)),
 			0xa7 => Ok(Opcode::Goto(reader.read_i16_branchoffset()?)),
 			0xc8 => Ok(Opcode::Goto(reader.read_i32_branchoffset()?)),
 			0x91 => Ok(Opcode::I2b),
@@ -916,10 +916,10 @@ impl Opcode {
 			0xc7 => Ok(Opcode::IfNonNull(reader.read_i16_branchoffset()?)),
 			0xc6 => Ok(Opcode::IfNull(reader.read_i16_branchoffset()?)),
 			0x84 => Ok(Opcode::IInc {
-				lv_index: LvIndex(reader.read_u1_as_usize()?),
-				const_: reader.read_u1()? as i32,
+				lv_index: LvIndex(reader.read_u8_as_usize()?),
+				const_: reader.read_u8()? as i32,
 			}),
-			0x15 => Ok(Opcode::ILoad(LvIndex(reader.read_u1_as_usize()?))),
+			0x15 => Ok(Opcode::ILoad(LvIndex(reader.read_u8_as_usize()?))),
 			0x1a => Ok(Opcode::ILoad(LvIndex(0))),
 			0x1b => Ok(Opcode::ILoad(LvIndex(1))),
 			0x1c => Ok(Opcode::ILoad(LvIndex(2))),
@@ -928,26 +928,26 @@ impl Opcode {
 			0xff => Ok(Opcode::ImpDep2),
 			0x68 => Ok(Opcode::IMul),
 			0x74 => Ok(Opcode::INeg),
-			0xc1 => Ok(Opcode::InstanceOf(pool.get(reader.read_u2_as_usize()?)?)),
+			0xc1 => Ok(Opcode::InstanceOf(pool.get(reader.read_u16_as_usize()?)?)),
 			0xba => Ok(Opcode::InvokeDynamic {
-				call_site: pool.get(reader.read_u2_as_usize()?)?,
-				zero1: reader.read_u1()?, // == 0
-				zero2: reader.read_u1()?, // == 0
+				call_site: pool.get(reader.read_u16_as_usize()?)?,
+				zero1: reader.read_u8()?, // == 0
+				zero2: reader.read_u8()?, // == 0
 			}),
 			0xb9 => Ok(Opcode::InvokeInterface {
-				method_ref: pool.get(reader.read_u2_as_usize()?)?,
-				count: reader.read_u1()?,
-				zero: reader.read_u1()?, // == 0
+				method_ref: pool.get(reader.read_u16_as_usize()?)?,
+				count: reader.read_u8()?,
+				zero: reader.read_u8()?, // == 0
 			}),
-			0xb7 => Ok(Opcode::InvokeSpecial(pool.get(reader.read_u2_as_usize()?)?)),
-			0xb8 => Ok(Opcode::InvokeStatic(pool.get(reader.read_u2_as_usize()?)?)),
-			0xb6 => Ok(Opcode::InvokeVirtual(pool.get(reader.read_u2_as_usize()?)?)),
+			0xb7 => Ok(Opcode::InvokeSpecial(pool.get(reader.read_u16_as_usize()?)?)),
+			0xb8 => Ok(Opcode::InvokeStatic(pool.get(reader.read_u16_as_usize()?)?)),
+			0xb6 => Ok(Opcode::InvokeVirtual(pool.get(reader.read_u16_as_usize()?)?)),
 			0x80 => Ok(Opcode::IOr),
 			0x70 => Ok(Opcode::IRem),
 			0xac => Ok(Opcode::IReturn),
 			0x78 => Ok(Opcode::IShl),
 			0x7a => Ok(Opcode::IShr),
-			0x36 => Ok(Opcode::IStore(LvIndex(reader.read_u1_as_usize()?))),
+			0x36 => Ok(Opcode::IStore(LvIndex(reader.read_u8_as_usize()?))),
 			0x3b => Ok(Opcode::IStore(LvIndex(0))),
 			0x3c => Ok(Opcode::IStore(LvIndex(1))),
 			0x3d => Ok(Opcode::IStore(LvIndex(2))),
@@ -969,8 +969,8 @@ impl Opcode {
 			0x0a => Ok(Opcode::LConst1),
 			opcode @ (0x12 | 0x13) => {
 				let cp_index = match opcode {
-					0x12 => reader.read_u1_as_usize()?, // ldc
-					0x13 => reader.read_u2_as_usize()?, // ldc_w
+					0x12 => reader.read_u8_as_usize()?, // ldc
+					0x13 => reader.read_u16_as_usize()?, // ldc_w
 					_ => unreachable!(),
 				};
 
@@ -986,7 +986,7 @@ impl Opcode {
 				}
 			},
 			0x14 => { // ldc2_w
-				let cp_index = reader.read_u2_as_usize()?;
+				let cp_index = reader.read_u16_as_usize()?;
 				match pool.get::<&PoolEntry>(cp_index)? {
 					PoolEntry::Long {..}   => Ok(Opcode::Ldc2WLong  (pool.get(cp_index)?)),
 					PoolEntry::Double {..} => Ok(Opcode::Ldc2WDouble(pool.get(cp_index)?)),
@@ -994,7 +994,7 @@ impl Opcode {
 				}
 			},
 			0x6d => Ok(Opcode::LDiv),
-			0x16 => Ok(Opcode::LLoad(LvIndex(reader.read_u1_as_usize()?))),
+			0x16 => Ok(Opcode::LLoad(LvIndex(reader.read_u8_as_usize()?))),
 			0x1e => Ok(Opcode::LLoad(LvIndex(0))),
 			0x1f => Ok(Opcode::LLoad(LvIndex(1))),
 			0x20 => Ok(Opcode::LLoad(LvIndex(2))),
@@ -1005,7 +1005,7 @@ impl Opcode {
 				reader.move_to_next_4_byte_boundary()?;
 
 				let default_target = reader.read_i32_branchoffset()?;
-				let npairs = reader.read_u4_as_usize()?;
+				let npairs = reader.read_u32_as_usize()?;
 
 				let mut targets = Vec::with_capacity(npairs);
 				for _ in 0..npairs {
@@ -1022,7 +1022,7 @@ impl Opcode {
 			0xad => Ok(Opcode::LReturn),
 			0x79 => Ok(Opcode::LShl),
 			0x7b => Ok(Opcode::LShr),
-			0x37 => Ok(Opcode::LStore(LvIndex(reader.read_u1_as_usize()?))),
+			0x37 => Ok(Opcode::LStore(LvIndex(reader.read_u8_as_usize()?))),
 			0x3f => Ok(Opcode::LStore(LvIndex(0))),
 			0x40 => Ok(Opcode::LStore(LvIndex(1))),
 			0x41 => Ok(Opcode::LStore(LvIndex(2))),
@@ -1033,18 +1033,18 @@ impl Opcode {
 			0xc2 => Ok(Opcode::MonitorEnter),
 			0xc3 => Ok(Opcode::MonitorExit),
 			0xc5 => Ok(Opcode::MultiANewArray(
-				pool.get(reader.read_u2_as_usize()?)?,
-				reader.read_u1_as_usize()? // >= 1
+				pool.get(reader.read_u16_as_usize()?)?,
+				reader.read_u8_as_usize()? // >= 1
 			)),
-			0xbb => Ok(Opcode::New(pool.get(reader.read_u2_as_usize()?)?)),
+			0xbb => Ok(Opcode::New(pool.get(reader.read_u16_as_usize()?)?)),
 			0xbc => Ok(Opcode::NewArray {
-				a_type: ArrayType::parse(reader.read_u1()?)?,
+				a_type: ArrayType::parse(reader.read_u8()?)?,
 			}),
 			0x00 => Ok(Opcode::Nop),
 			0x57 => Ok(Opcode::Pop),
 			0x58 => Ok(Opcode::Pop2),
-			0xb5 => Ok(Opcode::PutField(pool.get(reader.read_u2_as_usize()?)?)),
-			0xb3 => Ok(Opcode::PutStatic(pool.get(reader.read_u2_as_usize()?)?)),
+			0xb5 => Ok(Opcode::PutField(pool.get(reader.read_u16_as_usize()?)?)),
+			0xb3 => Ok(Opcode::PutStatic(pool.get(reader.read_u16_as_usize()?)?)),
 			0xa9 => bail!("ret instruction is not legal in class files of version 52.0 or greater"),
 			0xb1 => Ok(Opcode::Return),
 			0x35 => Ok(Opcode::SALoad),
@@ -1074,20 +1074,20 @@ impl Opcode {
 				})
 			},
 			0xc4 => { // Wide
-				match reader.read_u1()? {
-					0x19 => Ok(Opcode::ALoad(LvIndex(reader.read_u2_as_usize()?))),
-					0x3a => Ok(Opcode::AStore(LvIndex(reader.read_u2_as_usize()?))),
-					0x18 => Ok(Opcode::DLoad(LvIndex(reader.read_u2_as_usize()?))),
-					0x39 => Ok(Opcode::DStore(LvIndex(reader.read_u2_as_usize()?))),
-					0x17 => Ok(Opcode::FLoad(LvIndex(reader.read_u2_as_usize()?))),
-					0x38 => Ok(Opcode::FStore(LvIndex(reader.read_u2_as_usize()?))),
-					0x15 => Ok(Opcode::ILoad(LvIndex(reader.read_u2_as_usize()?))),
-					0x36 => Ok(Opcode::IStore(LvIndex(reader.read_u2_as_usize()?))),
-					0x16 => Ok(Opcode::LLoad(LvIndex(reader.read_u2_as_usize()?))),
-					0x37 => Ok(Opcode::LStore(LvIndex(reader.read_u2_as_usize()?))),
+				match reader.read_u8()? {
+					0x19 => Ok(Opcode::ALoad(LvIndex(reader.read_u16_as_usize()?))),
+					0x3a => Ok(Opcode::AStore(LvIndex(reader.read_u16_as_usize()?))),
+					0x18 => Ok(Opcode::DLoad(LvIndex(reader.read_u16_as_usize()?))),
+					0x39 => Ok(Opcode::DStore(LvIndex(reader.read_u16_as_usize()?))),
+					0x17 => Ok(Opcode::FLoad(LvIndex(reader.read_u16_as_usize()?))),
+					0x38 => Ok(Opcode::FStore(LvIndex(reader.read_u16_as_usize()?))),
+					0x15 => Ok(Opcode::ILoad(LvIndex(reader.read_u16_as_usize()?))),
+					0x36 => Ok(Opcode::IStore(LvIndex(reader.read_u16_as_usize()?))),
+					0x16 => Ok(Opcode::LLoad(LvIndex(reader.read_u16_as_usize()?))),
+					0x37 => Ok(Opcode::LStore(LvIndex(reader.read_u16_as_usize()?))),
 					0xa0 => bail!("wide ret instruction is not legal in class files of version 52.0 or greater"),
 					0x84 => Ok(Opcode::IInc {
-						lv_index: LvIndex(reader.read_u2_as_usize()?),
+						lv_index: LvIndex(reader.read_u16_as_usize()?),
 						const_: reader.read_i16()? as i32,
 					}),
 					opcode => bail!("illegal wide opcode: {opcode:x}"),
