@@ -1,33 +1,15 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use anyhow::{anyhow, bail, Result};
 use crate::descriptor::{FieldDescriptor, MethodDescriptor};
 use crate::MyRead;
 use crate::name::{ClassName, FieldName, MethodName};
-use crate::errors::{ClassFileParseError, OutOfBoundsError};
 
 pub mod attribute;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ConstantPoolTagMismatchError {
-	pub expected: String,
-	pub actual: String,
-}
-
-impl Display for ConstantPoolTagMismatchError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("ConstantPoolTagMismatchError")
-			.field("expected", &self.expected)
-			.field("actual", &self.actual)
-			.finish()
-	}
-}
-impl Error for ConstantPoolTagMismatchError {}
 
 
 #[derive(Debug)]
 pub struct Pool(Vec<PoolEntry>);
 impl Pool {
-	pub fn parse<R: MyRead>(reader: &mut R) -> Result<Pool, ClassFileParseError> {
+	pub fn parse<R: MyRead>(reader: &mut R) -> Result<Pool> {
 		let count = reader.read_u2_as_usize()?;
 		let mut vec = Vec::with_capacity(count);
 		vec.push(PoolEntry::None); // constant pool indices are based on 0
@@ -36,32 +18,32 @@ impl Pool {
 		}
 		Ok(Pool(vec))
 	}
-	pub fn get<T: FromPoolEntry>(&self, index: usize) -> Result<T, ClassFileParseError> {
-		let entry = self.0.get(index).ok_or(OutOfBoundsError)?;
+	pub fn get<T: FromPoolEntry>(&self, index: usize) -> Result<T> {
+		let entry = self.0.get(index)
+			.ok_or_else(|| anyhow!("index out of bounds: {index} for {}", self.0.len()))?;
 		T::from_pool_entry(self, entry)
 	}
 }
 
 macro_rules! create_err {
 	($entry:ident, $expected:ty) => {
-		Err(ConstantPoolTagMismatchError {
-			actual: format!("{:?}", $entry),
-			expected: stringify!($expected).into(),
-		})?
+		bail!("expected tag of {}, but got {:?}", stringify!($expected), $entry)
 	}
 }
 trait FromPoolEntry {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> where Self: Sized;
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self>
+	where
+		Self: Sized;
 }
 
 impl FromPoolEntry for &PoolEntry {
-	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> {
+	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		Ok(entry)
 	}
 }
 
 impl<T: FromPoolEntry> FromPoolEntry for Option<T> {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> {
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		match entry {
 			// this works since the index `0` refers to the very first element, and that is PoolEntry::None...
 			PoolEntry::None => Ok(None),
@@ -71,7 +53,7 @@ impl<T: FromPoolEntry> FromPoolEntry for Option<T> {
 }
 
 impl FromPoolEntry for &Vec<u8> {
-	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> {
+	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		match entry {
 			PoolEntry::Utf8(vec) => Ok(vec),
 			_ => create_err!(entry, PoolEntry::Utf8),
@@ -79,8 +61,19 @@ impl FromPoolEntry for &Vec<u8> {
 	}
 }
 
+impl FromPoolEntry for Utf8Info {
+	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
+		match entry {
+			PoolEntry::Utf8(vec) => Ok(Utf8Info {
+				inner: vec.clone(),
+			}),
+			_ => create_err!(entry, PoolEntry::Utf8),
+		}
+	}
+}
+
 impl FromPoolEntry for ClassName {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> {
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::ClassName(index) = entry {
 			if let PoolEntry::Utf8(vec) = pool.get::<&_>(*index)? {
 				Ok(ClassName::from(&vec[..]))
@@ -94,7 +87,7 @@ impl FromPoolEntry for ClassName {
 }
 
 impl FromPoolEntry for FieldName {
-	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> where Self: Sized {
+	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::Utf8(vec) = entry {
 			Ok(FieldName::from(&vec[..]))
 		} else {
@@ -104,7 +97,7 @@ impl FromPoolEntry for FieldName {
 }
 
 impl FromPoolEntry for FieldDescriptor {
-	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> where Self: Sized {
+	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::Utf8(vec) = entry {
 			Ok(FieldDescriptor::try_from(&vec[..])?)
 		} else {
@@ -114,7 +107,7 @@ impl FromPoolEntry for FieldDescriptor {
 }
 
 impl FromPoolEntry for MethodName {
-	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> where Self: Sized {
+	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::Utf8(vec) = entry {
 			Ok(MethodName::from(&vec[..]))
 		} else {
@@ -124,7 +117,7 @@ impl FromPoolEntry for MethodName {
 }
 
 impl FromPoolEntry for MethodDescriptor {
-	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> where Self: Sized {
+	fn from_pool_entry(_: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::Utf8(vec) = entry {
 			Ok(MethodDescriptor::try_from(&vec[..])?)
 		} else {
@@ -142,7 +135,7 @@ where
 	N: FromPoolEntry,
 	D: FromPoolEntry,
 {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> {
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::NameAndType{ name_index, descriptor_index } = entry {
 			let name       = N::from_pool_entry(pool, pool.get(*name_index      )?)?;
 			let descriptor = D::from_pool_entry(pool, pool.get(*descriptor_index)?)?;
@@ -154,7 +147,7 @@ where
 }
 
 impl FromPoolEntry for FieldRefInfo {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> {
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::FieldRef { class_index, name_and_type_index } = entry {
 			let class: ClassName = pool.get(*class_index)?;
 			let name_and_type: NameAndType<_, _> = pool.get(*name_and_type_index)?;
@@ -166,7 +159,7 @@ impl FromPoolEntry for FieldRefInfo {
 }
 
 impl FromPoolEntry for MethodRefInfo {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> {
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::MethodRef { class_index, name_and_type_index } = entry {
 			let class: ClassName = pool.get(*class_index)?;
 			let name_and_type: NameAndType<_, _> = pool.get(*name_and_type_index)?;
@@ -178,7 +171,7 @@ impl FromPoolEntry for MethodRefInfo {
 }
 
 impl FromPoolEntry for InterfaceMethodRefInfo {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> {
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::InterfaceMethodRef { class_index, name_and_type_index } = entry {
 			let class: ClassName = pool.get(*class_index)?;
 			let name_and_type: NameAndType<_, _> = pool.get(*name_and_type_index)?;
@@ -190,7 +183,7 @@ impl FromPoolEntry for InterfaceMethodRefInfo {
 }
 
 impl FromPoolEntry for MethodHandleInfo {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> where Self: Sized {
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::MethodHandle(kind, index) = entry {
 			match *kind {
 				1 => Ok(MethodHandleInfo::GetField        (pool.get(*index)?)),
@@ -204,7 +197,7 @@ impl FromPoolEntry for MethodHandleInfo {
 				8 => Ok(MethodHandleInfo::NewInvokeSpecial(pool.get(*index)?)),
 				// TODO: 9: must not be <init>/<clinit>
 				9 => Ok(MethodHandleInfo::InvokeInterface (pool.get(*index)?)),
-				kind => Err(ClassFileParseError::UnknownMethodHandleInfoKind(kind)),
+				kind => bail!("unknown method handle info kind"), // TODO: log value?
 			}
 		} else {
 			create_err!(entry, PoolEntry::MethodHandle)
@@ -213,7 +206,7 @@ impl FromPoolEntry for MethodHandleInfo {
 }
 
 impl FromPoolEntry for InvokeDynamicInfo {
-	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self, ClassFileParseError> where Self: Sized {
+	fn from_pool_entry(pool: &Pool, entry: &PoolEntry) -> Result<Self> {
 		if let PoolEntry::InvokeDynamic { bootstrap_method_attribute_index, name_and_type_index } = entry {
 			let name_and_type: NameAndType<_, _> = pool.get(*name_and_type_index)?;
 			Ok(InvokeDynamicInfo {
@@ -228,7 +221,7 @@ impl FromPoolEntry for InvokeDynamicInfo {
 
 
 /// This graph shows what depends (has an index to of a type) on what:
-/// ```
+/// ```txt
 /// Long  Double  Utf8  Integer  Float
 ///      __________/\_______________
 ///     /      /     \    \         \
@@ -274,7 +267,7 @@ pub enum PoolEntry { // TODO: should also not be public
 	},
 }
 impl PoolEntry {
-	fn parse<R: MyRead>(reader: &mut R) -> Result<PoolEntry, ClassFileParseError> {
+	fn parse<R: MyRead>(reader: &mut R) -> Result<PoolEntry> {
 		match reader.read_u1()? {
 			1 => Ok(Self::Utf8(reader.read_vec(
 				|r| r.read_u2_as_usize(),
@@ -314,33 +307,38 @@ impl PoolEntry {
 				bootstrap_method_attribute_index: reader.read_u2()?,
 				name_and_type_index: reader.read_u2_as_usize()?,
 			}),
-			tag => Err(ClassFileParseError::UnknownConstantPoolTag(tag))
+			tag => bail!("unknown constant pool tag"), // TODO: log value
 		}
 	}
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Utf8Info {
+	inner: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldRefInfo {
 	pub class: ClassName,
 	pub name: FieldName,
 	pub descriptor: FieldDescriptor,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodRefInfo {
 	pub class: ClassName,
 	pub name: MethodName,
 	pub descriptor: MethodDescriptor,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceMethodRefInfo {
 	pub class: ClassName,
 	pub name: MethodName,
 	pub descriptor: MethodDescriptor,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MethodHandleInfo {
 	GetField(FieldRefInfo),
 	GetStatic(FieldRefInfo),
@@ -353,7 +351,7 @@ pub enum MethodHandleInfo {
 	InvokeInterface(InterfaceMethodRefInfo),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvokeDynamicInfo {
 	bootstrap_method_attribute_index: u16,
 	name: MethodName,

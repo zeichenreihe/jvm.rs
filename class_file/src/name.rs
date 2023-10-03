@@ -53,3 +53,9 @@ impl From<&[u8]> for MethodName {
 		Self { inner: value.to_vec() }
 	}
 }
+
+impl<const N: usize> From<&[u8; N]> for MethodName {
+	fn from(value: &[u8; N]) -> Self {
+		Self { inner: value.to_vec() }
+	}
+}

@@ -1,16 +1,5 @@
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
-
-#[derive(Debug)]
-pub struct AccessFlagError(&'static str);
-
-impl Display for AccessFlagError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		Debug::fmt(self, f)
-	}
-}
-
-impl Error for AccessFlagError {}
+use anyhow::{bail, Result};
+use std::fmt::{Debug, Formatter};
 
 #[derive(Clone, PartialEq)]
 pub struct ClassInfoAccess {
@@ -25,7 +14,7 @@ pub struct ClassInfoAccess {
 }
 
 impl ClassInfoAccess {
-	pub fn parse(access_flags: u16) -> Result<Self, AccessFlagError> {
+	pub fn parse(access_flags: u16) -> Result<Self> {
 		let is_public     = access_flags & 0x0001 != 0;
 		let is_final      = access_flags & 0x0010 != 0;
 		let is_super      = access_flags & 0x0020 != 0;
@@ -37,19 +26,19 @@ impl ClassInfoAccess {
 		// other bits: reserved for future use
 
 		if is_interface && !is_abstract {
-			Err(AccessFlagError("ACC_INTERFACE must be ACC_ABSTRACT"))
+			bail!("ACC_INTERFACE must be ACC_ABSTRACT")
 		} else if is_interface && is_final {
-			Err(AccessFlagError("ACC_INTERFACE must not be ACC_FINAL"))
+			bail!("ACC_INTERFACE must not be ACC_FINAL")
 		} else if is_interface && is_super {
-			Err(AccessFlagError("ACC_INTERFACE must not be ACC_SUPER"))
+			bail!("ACC_INTERFACE must not be ACC_SUPER")
 		} else if is_interface && is_enum {
-			Err(AccessFlagError("ACC_INTERFACE must not be ACC_ENUM"))
+			bail!("ACC_INTERFACE must not be ACC_ENUM")
 		} else if !is_interface && is_annotation {
-			Err(AccessFlagError("ACC_ANNOTATION must not be set for non ACC_INTERFACE"))
+			bail!("ACC_ANNOTATION must not be set for non ACC_INTERFACE")
 		} else if !is_interface && is_final && is_abstract {
-			Err(AccessFlagError("ACC_FINAL and ACC_ABSTRACT must not be set together"))
+			bail!("ACC_FINAL and ACC_ABSTRACT must not be set together")
 		} else if is_annotation && !is_interface {
-			Err(AccessFlagError("ACC_ANNOTATION must be ACC_INTERFACE"))
+			bail!("ACC_ANNOTATION must be ACC_INTERFACE")
 		} else {
 			Ok(ClassInfoAccess { is_public, is_final, is_super, is_interface, is_abstract, is_synthetic, is_annotation, is_enum })
 		}
@@ -86,7 +75,7 @@ pub struct FieldInfoAccess {
 }
 
 impl FieldInfoAccess {
-	pub fn parse(access_flags: u16) -> Result<Self, AccessFlagError> {
+	pub fn parse(access_flags: u16) -> Result<Self> {
 		let is_public    = access_flags & 0x0001 != 0;
 		let is_private   = access_flags & 0x0002 != 0;
 		let is_protected = access_flags & 0x0004 != 0;
@@ -99,10 +88,10 @@ impl FieldInfoAccess {
 		// other bits: reserved for future use
 
 		if (is_public && is_private) || (is_private && is_protected) || (is_public && is_protected) {
-			return Err(AccessFlagError("at most one of ACC_PUBLIC, ACC_PRIVATE and ACC_PROTECTED may be set"));
+			bail!("at most one of ACC_PUBLIC, ACC_PRIVATE and ACC_PROTECTED may be set")
 		}
 		if is_final && is_volatile {
-			return Err(AccessFlagError("at most one of ACC_FINAL and ACC_VOLATILE may be set"));
+			bail!("at most one of ACC_FINAL and ACC_VOLATILE may be set")
 		}
 
 		let is_interface_field = false;
@@ -150,7 +139,7 @@ pub struct MethodInfoAccess {
 }
 
 impl MethodInfoAccess {
-	pub fn parse(access_flags: u16) -> Result<Self, AccessFlagError> {
+	pub fn parse(access_flags: u16) -> Result<Self> {
 		let is_public       = access_flags & 0x0001 != 0;
 		let is_private      = access_flags & 0x0002 != 0;
 		let is_protected    = access_flags & 0x0004 != 0;
@@ -166,7 +155,7 @@ impl MethodInfoAccess {
 		// other bits: reserved for future use
 
 		if (is_public && is_private) || (is_private && is_protected) || (is_public && is_protected) {
-			return Err(AccessFlagError("at most one of ACC_PUBLIC, ACC_PRIVATE and ACC_PROTECTED may be set"));
+			bail!("at most one of ACC_PUBLIC, ACC_PRIVATE and ACC_PROTECTED may be set")
 		}
 
 		/// Methods of interfaces may have any of the flags in Table 4.6-A set except ACC_PROTECTED, ACC_FINAL, ACC_SYNCHRONIZED,
@@ -177,7 +166,7 @@ impl MethodInfoAccess {
 		let is_interface_method = false; // "methods of interfaces"
 		if is_interface_method {
 			if is_protected || is_final || is_synchronised || is_native {
-				return Err(AccessFlagError("methods of interfaces may not have ACC_PROTECTED, ACC_FINAL, ACC_SYNCHRONIZED and ACC_NATIVE"));
+				bail!("methods of interfaces may not have ACC_PROTECTED, ACC_FINAL, ACC_SYNCHRONIZED and ACC_NATIVE")
 			}
 			// exactly one of is_public, is_private
 			// TODO: impl
@@ -186,7 +175,7 @@ impl MethodInfoAccess {
 		if is_abstract {
 			if is_private || is_static || is_final || is_synchronised || is_native || is_strict {
 				// must not have: is_private, is_static, is_final, is_synchronised, is_native, is_strict
-				return Err(AccessFlagError("ACC_ABSTRACT may not have ACC_PRIVATE, ACC_STATIC, ACC_FINAL, ACC_SYNCHRONIZED, ACC_NATIVE or ACC_STRICT"));
+				bail!("ACC_ABSTRACT may not have ACC_PRIVATE, ACC_STATIC, ACC_FINAL, ACC_SYNCHRONIZED, ACC_NATIVE or ACC_STRICT")
 			}
 		}
 

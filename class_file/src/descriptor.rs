@@ -1,21 +1,6 @@
-use std::borrow::Borrow;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use anyhow::{bail, Result};
 use std::iter::Peekable;
 use crate::name::ClassName;
-
-#[derive(Debug)]
-pub struct DescriptorParseError(&'static str, Vec<u8>);
-impl Error for DescriptorParseError {}
-impl Display for DescriptorParseError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.write_str(self.0)?;
-		f.write_str(": '")?;
-		f.write_str(&*String::from_utf8_lossy(&*self.1))?;
-		f.write_str("'")
-	}
-}
-
 
 // TODO: this is not good...
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -48,17 +33,13 @@ pub struct FieldDescriptor {
 }
 
 impl FieldDescriptor {
-	fn parse_iter<I>(iter: &mut Peekable<I>, value: &[u8]) -> Result<FieldDescriptor, DescriptorParseError>
-	where
-		I: Iterator,
-		I::Item: Borrow<u8>,
-	{
+	fn parse_iter<'a>(iter: &mut Peekable<impl Iterator<Item=&'a u8>>, value: &[u8]) -> Result<FieldDescriptor> {
 		let mut array_dimension = 0;
-		while let Some(b'[') = iter.peek() {
+		while let Some(b'[') = iter.peek().cloned().cloned() {
 			iter.next();
 			array_dimension += 1;
 			if array_dimension >= 256 {
-				return Err(DescriptorParseError("array dimension not <= 255", value.to_vec()));
+				bail!("array dimension not <= 255: '{}'", String::from_utf8_lossy(value));
 			}
 		}
 
@@ -69,8 +50,8 @@ impl FieldDescriptor {
 				loop {
 					match iter.next() {
 						Some(b';') => break, // class name ended
-						Some(x) => vec.push(x),
-						None => Err(DescriptorParseError("unexpected end", value.to_vec()))?,
+						Some(x) => vec.push(*x),
+						None => bail!("unexpected end: '{}'", String::from_utf8_lossy(value)),
 					}
 				}
 
@@ -86,8 +67,8 @@ impl FieldDescriptor {
 			Some(b'J') => BaseOrObjectType::J,
 			Some(b'S') => BaseOrObjectType::S,
 			Some(b'Z') => BaseOrObjectType::Z,
-			Some(_) => Err(DescriptorParseError("invalid field type", value.to_vec()))?,
-			None => Err(DescriptorParseError("unexpected end", value.to_vec()))?,
+			Some(_) => bail!("invalid field type: '{}'", String::from_utf8_lossy(value)),
+			None => bail!("unexpected end: '{}'", String::from_utf8_lossy(value)),
 		};
 
 		Ok(FieldDescriptor {
@@ -98,15 +79,15 @@ impl FieldDescriptor {
 }
 
 impl TryFrom<&[u8]> for FieldDescriptor {
-	type Error = DescriptorParseError;
+	type Error = anyhow::Error;
 
 	fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-		let mut iter = value.iter();
+		let mut iter = value.iter().peekable();
 
 		let descriptor = FieldDescriptor::parse_iter(&mut iter, value)?;
 
 		if !matches!(iter.next(), None) {
-			return Err(DescriptorParseError("field descriptor doesn't end", value.to_vec()));
+			bail!("field descriptor doesn't end: '{}'", String::from_utf8_lossy(value));
 		}
 
 		Ok(descriptor)
@@ -129,7 +110,7 @@ pub struct MethodDescriptor {
 }
 
 impl TryFrom<&[u8]> for MethodDescriptor {
-	type Error = DescriptorParseError;
+	type Error = anyhow::Error;
 
 	fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
 		let mut iter = value.into_iter().peekable();
@@ -137,7 +118,7 @@ impl TryFrom<&[u8]> for MethodDescriptor {
 		let mut parameters = Vec::new();
 
 		if !matches!(iter.next(), Some(b'(')) {
-			return Err(DescriptorParseError("no opening parenthesis in method descriptor", value.to_vec()));
+			bail!("no opening parenthesis in method descriptor: '{}'", String::from_utf8_lossy(value));
 		}
 
 		loop {
@@ -148,7 +129,7 @@ impl TryFrom<&[u8]> for MethodDescriptor {
 		}
 
 		if !matches!(iter.next(), Some(b')')) {
-			return Err(DescriptorParseError("no closing parenthesis in method descriptor", value.to_vec()));
+			bail!("no closing parenthesis in method descriptor: '{}'", String::from_utf8_lossy(value));
 		}
 
 		let return_type = if matches!(iter.peek(), Some(b'V')) {
@@ -158,7 +139,7 @@ impl TryFrom<&[u8]> for MethodDescriptor {
 		};
 
 		if !matches!(iter.next(), None) {
-			return Err(DescriptorParseError("method descriptor doesn't end", value.to_vec()));
+			bail!("method descriptor doesn't end: '{}'", String::from_utf8_lossy(value));
 		}
 
 		Ok(MethodDescriptor {
@@ -172,6 +153,8 @@ impl TryFrom<&[u8]> for MethodDescriptor {
 mod test {
 	use crate::classfile::descriptor::{BaseOrObjectType, FieldDescriptor, MethodDescriptor};
 	use crate::classfile::name::ClassName;
+	use crate::descriptor::{BaseOrObjectType, FieldDescriptor, MethodDescriptor};
+	use crate::name::ClassName;
 
 	#[test]
 	fn parse_field_descriptor() {

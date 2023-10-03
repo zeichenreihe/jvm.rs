@@ -1,11 +1,9 @@
+use anyhow::{bail, Result};
 use std::fmt::Debug;
 use std::io::Read;
 use itertools::{Either, Itertools};
 
-use crate::errors::ClassFileParseError;
-
-mod verifier;
-
+pub mod verifier;
 pub mod instruction;
 
 pub mod name;
@@ -20,40 +18,41 @@ use crate::cp::Pool;
 use crate::descriptor::{FieldDescriptor, MethodDescriptor};
 use crate::name::{ClassName, FieldName, MethodName};
 
-
-macro_rules! gen_parse_u_int {
-	($name:tt, $usize_parse_name:tt, $n:literal, $t:ty) => {
-		#[inline]
-		fn $name(&mut self) -> Result<$t, std::io::Error> {
-			let mut buf = [0u8; $n];
-			let length = self.read(&mut buf)?;
-			if length == $n {
-				Ok(<$t>::from_be_bytes(buf))
-			} else {
-				Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))
-			}
-		}
-		#[inline]
-		fn $usize_parse_name(&mut self) -> Result<usize, std::io::Error> {
-			Ok(self.$name()? as usize)
+trait MyRead: Read {
+	fn read_n<const N: usize>(&mut self) -> Result<[u8; N]> {
+		let mut buf = [0u8; N];
+		let length = self.read(&mut buf)?;
+		if length == N {
+			Ok(buf)
+		} else {
+			bail!("unexpected data end")
 		}
 	}
-}
-
-trait MyRead: Read {
-	fn read_u1(&mut self) -> Result<u8, std::io::Error>;
-	fn read_u2(&mut self) -> Result<u16, std::io::Error>;
-	fn read_u4(&mut self) -> Result<u32, std::io::Error>;
-	fn read_u1_as_usize(&mut self) -> Result<usize, std::io::Error>;
-	fn read_u2_as_usize(&mut self) -> Result<usize, std::io::Error>;
-	fn read_u4_as_usize(&mut self) -> Result<usize, std::io::Error>;
+	fn read_u1(&mut self) -> Result<u8> {
+		self.read_n().map(|x| u8::from_be_bytes(x))
+	}
+	fn read_u2(&mut self) -> Result<u16> {
+		Ok(u16::from_be_bytes(self.read_n()?))
+	}
+	fn read_u4(&mut self) -> Result<u32> {
+		Ok(u32::from_be_bytes(self.read_n()?))
+	}
+	fn read_u1_as_usize(&mut self) -> Result<usize> {
+		Ok(self.read_u1()? as usize)
+	}
+	fn read_u2_as_usize(&mut self) -> Result<usize> {
+		Ok(self.read_u2()? as usize)
+	}
+	fn read_u4_as_usize(&mut self) -> Result<usize> {
+		Ok(self.read_u4()? as usize)
+	}
 	/// First calls the `size` parameter to get the length of the data, then calls `element` so often to read the data, returning the data then. The
 	/// argument `self` is given to both closures.
 	#[inline]
-	fn read_vec<T, E: From<E1>, SIZE, ELEMENT, E1>(&mut self, size: SIZE, element: ELEMENT) -> Result<Vec<T>, E>
+	fn read_vec<T, S, E>(&mut self, size: S, element: E) -> Result<Vec<T>>
 	where
-		SIZE: FnOnce(&mut Self) -> Result<usize, E1>,
-		ELEMENT: Fn(&mut Self) -> Result<T, E>
+		S: FnOnce(&mut Self) -> Result<usize>,
+		E: Fn(&mut Self) -> Result<T>
 	{
 		let count = size(self)?;
 		let mut vec = Vec::with_capacity(count);
@@ -63,11 +62,7 @@ trait MyRead: Read {
 		Ok(vec)
 	}
 }
-impl<T: Read> MyRead for T {
-	gen_parse_u_int!(read_u1, read_u1_as_usize, 1, u8);
-	gen_parse_u_int!(read_u2, read_u2_as_usize, 2, u16);
-	gen_parse_u_int!(read_u4, read_u4_as_usize, 4, u32);
-}
+impl<T: Read> MyRead for T {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldInfo { // 4.5
@@ -79,7 +74,7 @@ pub struct FieldInfo { // 4.5
 }
 
 impl FieldInfo {
-	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self, ClassFileParseError> {
+	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self> {
 		let access_flags = FieldInfoAccess::parse(reader.read_u2()?)?;
 		let name = pool.get(reader.read_u2_as_usize()?)?;
 		let descriptor = pool.get(reader.read_u2_as_usize()?)?;
@@ -111,7 +106,7 @@ pub struct MethodInfo { // 4.6
 }
 
 impl MethodInfo {
-	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self, ClassFileParseError> {
+	fn parse<R: Read>(reader: &mut R, pool: &Pool) -> Result<Self> {
 		let access_flags = MethodInfoAccess::parse(reader.read_u2()?)?;
 		let name = pool.get(reader.read_u2_as_usize()?)?;
 		let descriptor = pool.get(reader.read_u2_as_usize()?)?;
@@ -153,7 +148,7 @@ impl MethodInfo {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ClassFile { // 4.1
+pub struct ClassFile {
 	pub minor_version: u16,
 	pub major_version: u16,
 	pub access_flags: ClassInfoAccess,
@@ -166,19 +161,17 @@ pub struct ClassFile { // 4.1
 }
 
 impl ClassFile {
-	pub fn parse<R: Read>(reader: &mut R) -> Result<Self, ClassFileParseError> {
+	pub fn parse<R: Read>(reader: &mut R) -> Result<Self> {
 		let magic = reader.read_u4()?;
 		if magic != 0xCAFE_BABE {
-			return Err(ClassFileParseError::InvalidMagic(magic));
+			bail!("magic didn't match up: {magic:x}")
 		}
 
 		let minor_version = reader.read_u2()?;
 		let major_version = reader.read_u2()?;
 
 		if major_version <= 51 {
-			return Err(ClassFileParseError::WrongVersion {
-				major: major_version, minor: minor_version,
-			});
+			bail!("we only accept class files with version >= 52.0, this one has: {major_version}.{minor_version}")
 		}
 
 		let pool = Pool::parse(reader)?;
@@ -207,13 +200,13 @@ impl ClassFile {
 
 		let mut end = [0u8];
 		if reader.read(&mut end)? != 0 {
-			return Err(ClassFileParseError::IllegalInstruction("Contains bytes after class file."));
+			bail!("expected end of class file")
 		}
 
 		Ok(ClassFile { minor_version, major_version, access_flags, this_class, super_class, interfaces, fields, methods, attributes })
 	}
 
-	pub fn verify(&self) -> Result<(), ClassFileParseError> {
+	pub fn verify(&self) -> Result<()> {
 		Ok(())
 	}
 }
